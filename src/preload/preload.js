@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld('api', {
   readColumnsFromFile: () => call('dialog:columns'),
   decide: (ids, decision) => call('review:decide', ids, decision),
   applyDecisions: () => call('review:apply'),
+  clearAllData: (phrase) => call('data:clear', phrase),
   rescanInbox: () => call('inbox:rescan'),
   chooseFilesForInbox: () => call('inbox:choose'),
   addFilesToInbox: (files) => call('inbox:add', Array.from(files, (file) => webUtils.getPathForFile(file))),

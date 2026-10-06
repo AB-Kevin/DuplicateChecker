@@ -17,10 +17,16 @@ function isSpreadsheet(filePath) {
   return SPREADSHEET_EXTENSIONS.includes(path.extname(name).toLowerCase());
 }
 
-function uniqueHeaders(rawHeaders) {
+/** True for the placeholder name given to a column with no header ("Column V"). */
+function isGeneratedHeader(header) {
+  return /^Column [A-Z]{1,3}(?: \(\d+\))?$/.test(header);
+}
+
+/** Names columns from their header cells; `columns` holds each one's sheet column index. */
+function uniqueHeaders(rawHeaders, columns) {
   const seen = new Map();
   return rawHeaders.map((raw, i) => {
-    let header = String(raw ?? '').replace(/\s+/g, ' ').trim() || `Column ${XLSX.utils.encode_col(i)}`;
+    let header = String(raw ?? '').replace(/\s+/g, ' ').trim() || `Column ${XLSX.utils.encode_col(columns[i])}`;
     const key = header.toLowerCase();
     const count = (seen.get(key) ?? 0) + 1;
     seen.set(key, count);
@@ -29,8 +35,35 @@ function uniqueHeaders(rawHeaders) {
   });
 }
 
+function isBlankCell(cell) {
+  return !cell || String(cell.w ?? cell.v ?? '').trim() === '';
+}
+
+/**
+ * The smallest range holding every non-blank cell, or null for an empty
+ * sheet. A sheet's recorded range stretches as far as any formatting does,
+ * which can be dozens of columns or a million rows past the data.
+ */
+function usedRange(sheet) {
+  let range = null;
+  for (const [address, cell] of Object.entries(sheet)) {
+    if (address.startsWith('!') || isBlankCell(cell)) continue;
+    const { r, c } = XLSX.utils.decode_cell(address);
+    if (!range) {
+      range = { s: { r, c }, e: { r, c } };
+      continue;
+    }
+    range.s.r = Math.min(range.s.r, r);
+    range.s.c = Math.min(range.s.c, c);
+    range.e.r = Math.max(range.e.r, r);
+    range.e.c = Math.max(range.e.c, c);
+  }
+  return range;
+}
+
 /**
  * Reads the first worksheet. The first non-blank row is the header row.
+ * Columns with neither a header nor any values are left out.
  * Returns { sheetName, headers, rows: [{ rowNumber, values: {header: text} }] }
  * where rowNumber is the row as numbered in Excel.
  */
@@ -40,29 +73,35 @@ function readTable(filePath) {
   const workbook = XLSX.read(buffer, { type: 'buffer', raw: true });
   const sheetName = workbook.SheetNames[0];
   const sheet = sheetName ? workbook.Sheets[sheetName] : null;
-  if (!sheet || !sheet['!ref']) return { sheetName, headers: [], rows: [] };
+  const range = sheet && usedRange(sheet);
+  if (!range) return { sheetName, headers: [], rows: [] };
 
-  const firstRow = XLSX.utils.decode_range(sheet['!ref']).s.r;
-  const grid = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: '', blankrows: true });
+  const grid = XLSX.utils.sheet_to_json(sheet, {
+    header: 1, raw: false, defval: '', blankrows: true, range: XLSX.utils.encode_range(range),
+  });
+  const text = (cells, i) => String(cells[i] ?? '').trim();
   const isBlank = (cells) => cells.every((c) => String(c).trim() === '');
 
   const headerIndex = grid.findIndex((cells) => !isBlank(cells));
   if (headerIndex === -1) return { sheetName, headers: [], rows: [] };
+  const headerRow = grid[headerIndex];
+  const dataRows = grid.slice(headerIndex + 1);
 
-  const width = Math.max(...grid.map((cells) => cells.length));
-  const rawHeaders = Array.from({ length: width }, (_, i) => grid[headerIndex][i]);
-  const headers = uniqueHeaders(rawHeaders);
+  const columns = []; // grid positions of the columns worth keeping
+  for (let i = 0; i <= range.e.c - range.s.c; i++) {
+    if (text(headerRow, i) || dataRows.some((cells) => text(cells, i))) columns.push(i);
+  }
+  const headers = uniqueHeaders(columns.map((i) => headerRow[i]), columns.map((i) => range.s.c + i));
 
   const rows = [];
-  for (let i = headerIndex + 1; i < grid.length; i++) {
-    const cells = grid[i];
-    if (isBlank(cells)) continue;
+  dataRows.forEach((cells, offset) => {
+    if (isBlank(cells)) return;
     const values = {};
-    headers.forEach((header, c) => {
-      values[header] = String(cells[c] ?? '').trim();
+    headers.forEach((header, k) => {
+      values[header] = text(cells, columns[k]);
     });
-    rows.push({ rowNumber: firstRow + i + 1, values });
-  }
+    rows.push({ rowNumber: range.s.r + headerIndex + offset + 2, values });
+  });
   return { sheetName, headers, rows };
 }
 
@@ -147,4 +186,12 @@ function writeTable(filePath, { sheetName, headers, rows }) {
   }
 }
 
-module.exports = { SPREADSHEET_EXTENSIONS, isSpreadsheet, readTable, readHeaders, writeTable, toCell };
+module.exports = {
+  SPREADSHEET_EXTENSIONS,
+  isSpreadsheet,
+  isGeneratedHeader,
+  readTable,
+  readHeaders,
+  writeTable,
+  toCell,
+};

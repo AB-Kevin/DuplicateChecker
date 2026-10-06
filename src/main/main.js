@@ -6,10 +6,11 @@ const { app, BrowserWindow, ipcMain, dialog, shell, Notification, Menu } = requi
 const { readJson, writeJson, defaultSettings, validateSettings } = require('./settings');
 const { openBooks } = require('./books');
 const { InboxWatcher } = require('./inbox');
-const { importFile, applyDecisions, ImportError } = require('./processor');
+const { importFile, applyDecisions, clearAllData, ImportError, tidyState } = require('./processor');
 const { readHeaders, isSpreadsheet, SPREADSHEET_EXTENSIONS } = require('./spreadsheet');
 
 const APP_ID = 'org.anabaptistbrotherhood.duplicatechecker';
+const CLEAR_PHRASE = 'Clear ALL DATA'; // must match the Settings screen's confirmation
 
 // A second copy would process the same inbox twice.
 const isPrimaryInstance = app.requestSingleInstanceLock();
@@ -128,9 +129,18 @@ function snapshot() {
   };
 }
 
+// Called at startup or from within exclusive(), before the watcher (re)starts,
+// so nothing else is writing the spreadsheets while they are tidied.
 async function configure() {
   fs.mkdirSync(settings.outputDir, { recursive: true });
   books = openBooks(settings.outputDir);
+  for (const book of [books.database, books.duplicates]) {
+    try {
+      book.tidy();
+    } catch {
+      // Open in Excel or unreadable; it is tidied the next time it is saved.
+    }
+  }
   await watcher.start(settings.inboxDir);
 }
 
@@ -211,6 +221,17 @@ function registerIpc() {
     }
   }));
 
+  handle('data:clear', (phrase) => {
+    if (String(phrase ?? '').trim() !== CLEAR_PHRASE) throw new Error(`Type ${CLEAR_PHRASE} to confirm.`);
+    return exclusive(() => {
+      try {
+        return clearAllData({ books, state, saveState });
+      } finally {
+        stateChanged();
+      }
+    });
+  });
+
   handle('inbox:rescan', () => watcher.rescan(true));
 
   handle('inbox:choose', async () => {
@@ -279,6 +300,7 @@ app.whenReady().then(async () => {
   settings = validateSettings(stored ?? {}, defaults()).settings;
   if (!stored) writeJson(settingsPath(), settings);
   state = { queue: [], log: [], ...readJson(statePath(), {}) };
+  if (tidyState(state)) saveState();
 
   watcher = new InboxWatcher(processInboxFile);
   watcher.on('status', stateChanged);

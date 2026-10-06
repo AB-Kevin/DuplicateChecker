@@ -6,9 +6,9 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const XLSX = require('xlsx');
-const { readTable } = require('../src/main/spreadsheet');
+const { readTable, writeTable } = require('../src/main/spreadsheet');
 const { openBooks } = require('../src/main/books');
-const { importFile, applyDecisions, ImportError } = require('../src/main/processor');
+const { importFile, applyDecisions, clearAllData, ImportError, tidyState } = require('../src/main/processor');
 
 const HEADERS = ['Member ID', 'PatientName', 'CPT Code', 'Service Date', 'Charge Amount'];
 
@@ -158,4 +158,96 @@ test('a column named like a bookkeeping column is renamed, not overwritten', () 
   assert.ok(db.headers.includes('Date Added (original)'));
   assert.equal(db.rows[0].values['Date Added (original)'], 'theirs');
   assert.match(db.rows[0].values['Date Added'], /^\d{4}-\d{2}-\d{2}$/);
+});
+
+test('empty unnamed columns saved by earlier versions are removed from the database', () => {
+  const { ctx, read } = setup();
+  const book = ctx.books.database;
+  fs.mkdirSync(ctx.settings.outputDir, { recursive: true });
+  writeTable(book.filePath, {
+    sheetName: 'Database',
+    headers: ['Member ID', 'Column V', 'Column W', 'Column X', 'Date Added', 'Source File', 'Source Row'],
+    rows: [
+      { 'Member ID': '100', 'Column W': 'kept', 'Date Added': '2026-10-01', 'Source File': 'a.xlsx', 'Source Row': '2' },
+      { 'Member ID': '200', 'Date Added': '2026-10-01', 'Source File': 'a.xlsx', 'Source Row': '3' },
+    ],
+  });
+
+  assert.deepEqual(book.load().headers, ['Member ID', 'Column W']);
+  assert.equal(book.tidy(), true);
+  assert.deepEqual(read('Database.xlsx').headers, ['Member ID', 'Column W', 'Date Added', 'Source File', 'Source Row']);
+  assert.equal(book.tidy(), false, 'nothing left to tidy');
+});
+
+test('empty unnamed columns are removed from review items and the log', () => {
+  const state = {
+    queue: [{
+      headers: ['Name', 'Column V', 'Column W'],
+      record: { Name: 'Ann', 'Column V': '', 'Column W': 'note' },
+      matches: [{ headers: ['Name', 'Column V'], record: { Name: 'Ann', 'Column V': '' } }],
+    }],
+    log: [{ headers: ['Name', 'Column V'] }, { status: 'skipped' }],
+  };
+  assert.equal(tidyState(state), true);
+  assert.deepEqual(state.queue[0].headers, ['Name', 'Column W']);
+  assert.deepEqual(state.queue[0].matches[0].headers, ['Name']);
+  assert.deepEqual(state.log[0].headers, ['Name']);
+  assert.equal(tidyState(state), false);
+});
+
+test('must-match columns and some-of columns combine', () => {
+  const { ctx, state, drop } = setup({
+    requiredFields: ['Member ID', 'PatientName'],
+    fields: ['CPT Code', 'Service Date', 'Charge Amount'],
+    threshold: 2,
+  });
+  importFile(drop('week1.xlsx', [['100', 'Ann Lee', '99213', '3/15/2026', '$50.00']]), ctx);
+  const entry = importFile(drop('week2.xlsx', [
+    ['100', 'Ann Lee', '99213', '3/15/2026', '$75.00'], // both required + 2 of 3: flagged
+    ['100', 'Ann Lee', '99213', '3/16/2026', '$80.00'], // both required + 1 of 3, against week 1 and row 2
+    ['999', 'Ann Lee', '99213', '3/15/2026', '$50.00'], // all 3 others, but Member ID differs
+  ]), ctx);
+  assert.equal(entry.flagged, 1);
+  assert.equal(entry.added, 2);
+  const item = state.queue[0];
+  assert.equal(item.rowNumber, 2);
+  assert.deepEqual(item.requiredFields, ['Member ID', 'PatientName']);
+  assert.deepEqual(item.fields, ['CPT Code', 'Service Date', 'Charge Amount']);
+  assert.deepEqual(item.matches[0].fields, ['Member ID', 'PatientName', 'CPT Code', 'Service Date']);
+});
+
+test('a file missing a must-match column is left in the inbox', () => {
+  const { ctx, drop } = setup({ requiredFields: ['Invoice #'] });
+  const file = drop('a.xlsx', [['100', 'Ann', '99213', '1/1/2026', '$5.00']]);
+  assert.throws(() => importFile(file, ctx), /"Invoice #", which is set to always match/);
+  assert.equal(fs.existsSync(file), true);
+});
+
+test('clearing all data empties everything, keeps backups, and allows re-importing', () => {
+  const { root, ctx, state, drop, settings } = setup();
+  const rows = [['100', 'Ann Lee', '99213', '1/5/2026'], ['100', 'Ann Lee', '99213', '1/5/2026']];
+  const file = drop('w.xlsx', rows);
+  const copy = path.join(root, 'copy.xlsx');
+  fs.copyFileSync(file, copy);
+  importFile(file, ctx);
+  state.queue[0].decision = 'duplicate';
+  applyDecisions(ctx);
+  importFile(drop('w2.xlsx', [['100', 'Ann Lee', '99213', '1/5/2026', '$1.00']]), ctx);
+  assert.equal(state.queue.length, 1);
+
+  const removed = clearAllData(ctx);
+  assert.deepEqual(removed, { databaseRows: 1, duplicateRows: 1, reviewItems: 1 });
+  assert.equal(fs.existsSync(path.join(settings.outputDir, 'Database.xlsx')), false);
+  assert.equal(fs.existsSync(path.join(settings.outputDir, 'Duplicates.xlsx')), false);
+  assert.deepEqual(state, { queue: [], log: [] });
+  const backups = fs.readdirSync(path.join(settings.outputDir, 'Backups'));
+  assert.ok(backups.some((f) => /^Database before clearing .+\.xlsx$/.test(f)));
+  assert.ok(backups.some((f) => /^Duplicates before clearing .+\.xlsx$/.test(f)));
+
+  // The same file imports again rather than being skipped as already imported.
+  fs.copyFileSync(copy, file);
+  const again = importFile(file, ctx);
+  assert.equal(again.status, 'imported');
+  assert.equal(again.added, 1);
+  assert.equal(ctx.books.database.load().rows.length, 1);
 });

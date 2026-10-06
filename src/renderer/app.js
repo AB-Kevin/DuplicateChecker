@@ -44,6 +44,11 @@
     if (all.length > 4) all[0].remove();
   }
 
+  /** Removes warnings an action has since resolved, e.g. "file is open" once a retry works. */
+  function clearErrorToasts() {
+    $$('.toast.error').forEach((el) => el.remove());
+  }
+
   /** Runs an API call, showing any error as a toast. Resolves to undefined on failure. */
   async function attempt(fn) {
     try {
@@ -62,7 +67,7 @@
     const first = !ui.data;
     ui.data = data;
     if (!ui.draftDirty) loadDraft();
-    if (first) showView(data.settings.fields.length ? 'review' : 'settings');
+    if (first) showView(hasColumns(data.settings) ? 'review' : 'settings');
     else render();
   }
 
@@ -132,8 +137,13 @@
     return header ? record[header] ?? '' : '';
   }
 
+  const hasColumns = (settings) => Boolean(settings.fields.length || settings.requiredFields?.length);
+
+  /** The columns an item was compared on: must-match columns first. Older items have no requiredFields. */
+  const itemColumns = (item) => [...(item.requiredFields ?? []), ...item.fields];
+
   function itemSummary(item) {
-    const values = item.fields.map((f) => valueIn(item.headers, item.record, f)).filter(Boolean);
+    const values = itemColumns(item).map((f) => valueIn(item.headers, item.record, f)).filter(Boolean);
     return values.join(' · ') || 'Compared columns are blank';
   }
 
@@ -155,7 +165,7 @@
     $('#apply-bar').hidden = empty;
     $('#review-empty').hidden = !empty;
     if (empty) {
-      $('#review-empty').innerHTML = settings.fields.length
+      $('#review-empty').innerHTML = hasColumns(settings)
         ? `<h1>Nothing to review</h1>
            <p>Spreadsheets dropped into the inbox are checked automatically. Entries that look like duplicates will be listed here.</p>
            <p class="path">${esc(settings.inboxDir)}</p>
@@ -213,7 +223,7 @@
             <span class="qi-row">Row ${esc(item.rowNumber)}</span>
             ${tag(item)}
             <span class="qi-summary">${esc(itemSummary(item))}</span>
-            <span class="qi-meta">${esc(KIND_LABELS[best.kind])} · ${best.fields.length} of ${item.fields.length} columns match</span>
+            <span class="qi-meta">${esc(KIND_LABELS[best.kind])} · ${best.fields.length} of ${itemColumns(item).length} columns match</span>
           </button>`;
         }).join('')}
       </div>`).join('');
@@ -228,7 +238,18 @@
       return;
     }
     const best = item.matches[0];
-    let lede = `Matches ${matchPhrase(best)} on ${listText(best.fields)}: ${best.fields.length} of ${item.fields.length} compared columns.`;
+    const required = item.requiredFields ?? [];
+    const isRequired = (column) => required.some((r) => normalizeHeader(r) === normalizeHeader(column));
+    let lede;
+    if (!required.length) {
+      lede = `Matches ${matchPhrase(best)} on ${listText(best.fields)}: ${best.fields.length} of ${item.fields.length} compared columns.`;
+    } else if (!item.fields.length) {
+      lede = `Matches ${matchPhrase(best)} on ${listText(required)}, which must always match.`;
+    } else {
+      const others = best.fields.filter((f) => !isRequired(f));
+      lede = `Matches ${matchPhrase(best)} on ${listText(required)}, which must always match, ` +
+        `and on ${others.length} of the ${item.fields.length} other compared columns (${listText(others)}).`;
+    }
     if (item.matchCount > 1) {
       lede += ` It also matches ${count(item.matchCount - 1, 'other entry', 'other entries')}`;
       lede += item.matchCount > item.matches.length ? `; the closest ${item.matches.length} are shown.` : '.';
@@ -246,7 +267,7 @@
 
     // Compared columns first, then the entry's other columns, then any
     // columns only the matches have.
-    const compared = item.fields.map((f) => resolveHeader(item.headers, f) ?? f);
+    const compared = itemColumns(item).map((f) => resolveHeader(item.headers, f) ?? f);
     const seen = new Set(compared.map(normalizeHeader));
     const others = [];
     for (const header of [item.headers, ...item.matches.map((m) => m.headers)].flat()) {
@@ -267,7 +288,8 @@
         const cls = isCompared ? (same ? 'same' : '') : (same ? 'equal' : 'differs');
         return `<td class="${cls}">${esc(value)}</td>`;
       });
-      return `<tr><th scope="row">${esc(label)}</th>${cells.join('')}</tr>`;
+      const mark = isCompared && isRequired(label) ? '<span class="req">Must match</span>' : '';
+      return `<tr><th scope="row">${esc(label)}${mark}</th>${cells.join('')}</tr>`;
     };
 
     detail.innerHTML = `
@@ -349,7 +371,7 @@
     $('#apply').disabled = true;
     const result = await attempt(() => api.applyDecisions());
     if (result) {
-      $$('.toast.error').forEach((el) => el.remove()); // e.g. an earlier "file is open" warning
+      clearErrorToasts();
       const parts = [];
       if (result.duplicates) parts.push(`${count(result.duplicates, 'entry', 'entries')} added to Duplicates.xlsx`);
       if (result.added) parts.push(`${count(result.added, 'entry', 'entries')} added to Database.xlsx`);
@@ -432,32 +454,64 @@
     $('#settings-dirty-dot').hidden = !dirty;
   }
 
-  function isSelected(name) {
+  // The two column lists: requiredFields must all match; of fields, at least
+  // `threshold` must match. A column can be checked in only one of them.
+  const LISTS = { requiredFields: '#required-list', fields: '#optional-list' };
+
+  function inList(list, name) {
     const key = normalizeHeader(name);
-    return ui.draft.fields.some((f) => normalizeHeader(f) === key);
+    return ui.draft[list].some((f) => normalizeHeader(f) === key);
   }
 
   function renderColumns() {
     if (!ui.draft) return;
     const all = new Map();
-    for (const name of [...ui.data.knownColumns, ...ui.extraColumns, ...ui.draft.fields]) {
+    for (const name of [...ui.data.knownColumns, ...ui.extraColumns, ...ui.draft.requiredFields, ...ui.draft.fields]) {
       const key = normalizeHeader(name);
       if (key && !all.has(key)) all.set(key, name);
     }
     const names = [...all.values()];
-    $('#column-list').innerHTML = names.length
-      ? names.map((name) => {
-        const position = ui.draft.fields.findIndex((f) => normalizeHeader(f) === normalizeHeader(name));
-        return `
-          <label class="check">
-            <input type="checkbox" data-column="${esc(name)}"${position >= 0 ? ' checked' : ''}>
-            <span>${esc(name)}</span>
-          </label>`;
-      }).join('')
-      : '<p class="muted small">No columns are known yet. Read them from a spreadsheet, or add them by name.</p>';
-    $('#known-columns').innerHTML = names.filter((n) => !isSelected(n)).map((n) => `<option value="${esc(n)}"></option>`).join('');
+    for (const [list, selector] of Object.entries(LISTS)) {
+      const other = list === 'fields' ? 'requiredFields' : 'fields';
+      const otherLabel = list === 'fields' ? 'columns that must always match' : 'columns where some must match';
+      $(selector).innerHTML = names.length
+        ? names.map((name) => {
+          const taken = inList(other, name);
+          return `
+            <label class="check${taken ? ' taken' : ''}"${taken ? ` title="Already checked in ${otherLabel}"` : ''}>
+              <input type="checkbox" data-list="${list}" data-column="${esc(name)}"${inList(list, name) ? ' checked' : ''}${taken ? ' disabled' : ''}>
+              <span>${esc(name)}</span>
+            </label>`;
+        }).join('')
+        : '<p class="muted small">No columns are known yet. Read them from a spreadsheet, or add them by name.</p>';
+    }
     $('#field-count').textContent = ui.draft.fields.length;
     form.threshold.max = Math.max(ui.draft.fields.length, 1);
+    form.threshold.disabled = !ui.draft.fields.length;
+    renderRuleSummary();
+  }
+
+  /** Spells out the matching rule being edited, e.g. "Flag an entry when A matches, and at least 2 of B, C and D also match." */
+  function renderRuleSummary() {
+    const { requiredFields: required, fields: optional } = ui.draft;
+    const atLeast = Number(form.threshold.value);
+    let text;
+    if (!required.length && !optional.length) {
+      text = 'No columns are checked, so files in the inbox will wait until you choose some.';
+    } else {
+      const parts = [];
+      if (required.length) {
+        parts.push(`${listText(required)} ${['matches', 'both match'][required.length - 1] ?? 'all match'}`);
+      }
+      if (optional.length) {
+        const some = optional.length === 1 ? optional[0]
+          : atLeast === optional.length ? `${optional.length === 2 ? 'both' : `all ${optional.length} of`} ${listText(optional)}`
+            : `at least ${Number.isInteger(atLeast) && atLeast > 0 ? atLeast : '?'} of ${listText(optional)}`;
+        parts.push(`${some} ${required.length ? 'also ' : ''}match${optional.length === 1 ? 'es' : ''}`);
+      }
+      text = `Flag an entry when ${parts.join(', and ')}.`;
+    }
+    $('#rule-summary').textContent = text;
   }
 
   function renderErrors() {
@@ -467,13 +521,13 @@
     }
   }
 
+  /** Adds a column name to both lists, unchecked. */
   function addColumn(name) {
     const clean = name.replace(/\s+/g, ' ').trim();
     if (!clean) return;
-    if (!isSelected(clean)) ui.draft.fields.push(clean);
     if (!ui.extraColumns.some((c) => normalizeHeader(c) === normalizeHeader(clean))) ui.extraColumns.push(clean);
-    markDirty();
     renderColumns();
+    toast(`Added ${clean}. Check it in either list to compare it.`, 'info');
   }
 
   form.addEventListener('input', (event) => {
@@ -481,16 +535,17 @@
     if (['inboxDir', 'outputDir', 'threshold', 'retentionDays'].includes(name)) {
       ui.draft[name] = value;
       markDirty();
+      if (name === 'threshold') renderRuleSummary();
     }
   });
 
   form.addEventListener('change', (event) => {
-    const column = event.target.dataset?.column;
-    if (column === undefined) return;
+    const { list, column } = event.target.dataset ?? {};
+    if (!list || column === undefined) return;
     if (event.target.checked) {
-      if (!isSelected(column)) ui.draft.fields.push(column);
+      if (!inList(list, column)) ui.draft[list].push(column);
     } else {
-      ui.draft.fields = ui.draft.fields.filter((f) => normalizeHeader(f) !== normalizeHeader(column));
+      ui.draft[list] = ui.draft[list].filter((f) => normalizeHeader(f) !== normalizeHeader(column));
     }
     markDirty();
     renderColumns();
@@ -550,6 +605,55 @@
     ui.data.settings = result.settings;
     loadDraft();
     toast('Settings saved. The inbox has been rescanned.', 'success');
+    await refresh();
+  });
+
+  // Clear all data -------------------------------------------------------
+
+  const CLEAR_PHRASE = 'Clear ALL DATA'; // the main process checks the same phrase
+  const clearDialog = $('#clear-dialog');
+  const clearInput = $('#clear-confirm');
+
+  $('#open-clear').addEventListener('click', () => {
+    const { database, duplicates, queue } = ui.data;
+    const rows = (book, file) => (book.rows === null ? `Everything in ${file}` : `${count(book.rows, 'entry', 'entries')} in ${file}`);
+    const items = [
+      rows(database, 'Database.xlsx'),
+      rows(duplicates, 'Duplicates.xlsx'),
+      `${count(queue.length, 'entry', 'entries')} waiting for review, including decisions not yet saved`,
+      'The activity log, so files imported before can be imported again',
+    ];
+    $('#clear-summary').innerHTML = items.map((item) => `<li>${esc(item)}</li>`).join('');
+    clearInput.value = '';
+    $('#clear-submit').disabled = true;
+    clearDialog.showModal();
+    clearInput.focus();
+  });
+
+  clearInput.addEventListener('input', () => {
+    $('#clear-submit').disabled = clearInput.value.trim() !== CLEAR_PHRASE;
+  });
+
+  $('#clear-cancel').addEventListener('click', () => clearDialog.close());
+
+  $('#clear-form').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (clearInput.value.trim() !== CLEAR_PHRASE) return;
+    $('#clear-submit').disabled = true;
+    const removed = await attempt(() => api.clearAllData(clearInput.value));
+    if (!removed) {
+      $('#clear-submit').disabled = false; // e.g. a file open in Excel; fix it and try again
+      return;
+    }
+    clearDialog.close();
+    clearErrorToasts();
+    ui.selectedId = null;
+    toast(
+      `All data cleared: ${count(removed.databaseRows, 'database entry', 'database entries')}, ` +
+      `${count(removed.duplicateRows, 'duplicate')} and ${count(removed.reviewItems, 'entry', 'entries')} awaiting review. ` +
+      'Backup copies are in the Backups folder.',
+      'success',
+    );
     await refresh();
   });
 

@@ -355,6 +355,14 @@ table.compare { border-collapse: collapse; min-width: 100%; font-size: var(--tex
   border-right: 1px solid var(--green-300);
 }
 .compare td { max-width: 320px; overflow-wrap: anywhere; }
+.compare .req {
+  display: block;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
 .compare td:nth-child(2) { font-weight: 500; }
 .compare tr.group-row th {
   font-size: var(--text-caption);
@@ -497,7 +505,35 @@ input.invalid { border-color: var(--green-700); }
   border-bottom: 2px solid var(--white);
   transform: rotate(-45deg);
 }
-.check .order { font-size: var(--text-caption); color: var(--text-muted); }
+.check.taken { opacity: 0.45; cursor: default; }
+.check.taken input { cursor: default; }
+
+.intro { max-width: 68ch; margin-bottom: var(--space-4); }
+.rule-summary {
+  background: var(--green-100);
+  border-radius: var(--radius-card);
+  padding: var(--space-4) var(--space-5);
+  margin-bottom: var(--space-2);
+}
+.rule-summary .eyebrow { color: var(--green-700); }
+
+/* Dialog ----------------------------------------------------------------- */
+.dialog {
+  width: min(520px, calc(100% - 32px));
+  border: none;
+  border-radius: var(--radius-control);
+  padding: var(--space-6);
+  color: var(--text-body);
+  background: var(--white);
+  box-shadow: var(--shadow-overlay);
+}
+.dialog::backdrop { background: rgba(35, 31, 32, 0.45); }
+.dialog h2 { margin-bottom: var(--space-3); }
+.dialog ul { margin: var(--space-2) 0 var(--space-3); padding-left: 20px; }
+.dialog li + li { margin-top: var(--space-1); }
+.dialog label { display: block; font-weight: 500; margin: var(--space-5) 0 var(--space-2); }
+.dialog input { width: 100%; }
+.dialog-actions { display: flex; gap: var(--space-3); margin-top: var(--space-5); }
 
 .form-actions {
   display: flex;

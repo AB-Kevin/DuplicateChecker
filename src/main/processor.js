@@ -13,9 +13,9 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { readTable } = require('./spreadsheet');
+const { readTable, isGeneratedHeader } = require('./spreadsheet');
 const { normalizeHeader, resolveFields, pickValues, MatchIndex } = require('../shared/matcher');
-const { DATABASE_META, DUPLICATES_META, localDate, retentionFilter } = require('./books');
+const { DATABASE_META, DUPLICATES_META, localDate, localTimestamp, retentionFilter } = require('./books');
 
 const MAX_MATCHES_KEPT = 5;
 const MAX_LOG_ENTRIES = 200;
@@ -50,16 +50,25 @@ function renameReservedHeaders({ headers, rows }) {
   };
 }
 
-function effectiveThreshold(settings) {
-  return Math.min(Math.max(1, settings.threshold), settings.fields.length);
+/**
+ * The matching rule from settings: every `required` column must match, and
+ * at least `atLeast` of the `optional` columns. `all` lists the required
+ * columns first, which is the order MatchIndex expects.
+ */
+function matchRule(settings) {
+  const required = settings.requiredFields ?? [];
+  const optional = settings.fields;
+  const atLeast = optional.length ? Math.min(Math.max(1, settings.threshold), optional.length) : 0;
+  return { required, optional, atLeast, all: [...required, ...optional] };
 }
+
+const quoted = (names) => names.map((n) => `"${n}"`).join(', ');
 
 /** Moves a file into the Processed folder, prefixed with the time it was handled. */
 function moveToProcessed(filePath, outputDir, now) {
   const dir = path.join(outputDir, 'Processed');
   fs.mkdirSync(dir, { recursive: true });
-  const stamp = `${localDate(now)} ${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}`;
-  const target = path.join(dir, `${stamp} ${path.basename(filePath)}`);
+  const target = path.join(dir, `${localTimestamp(now)} ${path.basename(filePath)}`);
   try {
     fs.renameSync(filePath, target);
   } catch (err) {
@@ -108,16 +117,24 @@ function importFile(filePath, ctx) {
     throw new ImportError(`Could not read the spreadsheet: ${err.message}`);
   }
 
-  if (!settings.fields.length) {
+  const rule = matchRule(settings);
+  if (!rule.all.length) {
     throw new ImportError('Choose the columns to compare in Settings. The file will be imported once they are saved.', table.headers);
   }
-  const threshold = effectiveThreshold(settings);
-  const fileFields = resolveFields(table.headers, settings.fields);
-  const missing = settings.fields.filter((_, i) => !fileFields[i]);
-  if (settings.fields.length - missing.length < threshold) {
+  const fileFields = resolveFields(table.headers, rule.all);
+  const missingRequired = rule.required.filter((_, i) => !fileFields[i]);
+  if (missingRequired.length) {
     throw new ImportError(
-      `Missing column${missing.length === 1 ? '' : 's'} ${missing.map((m) => `"${m}"`).join(', ')}. ` +
-      `At least ${threshold} of the ${settings.fields.length} compare columns must be present.`,
+      `Missing column${missingRequired.length === 1 ? '' : 's'} ${quoted(missingRequired)}, ` +
+      `which ${missingRequired.length === 1 ? 'is' : 'are'} set to always match.`,
+      table.headers,
+    );
+  }
+  const missing = rule.optional.filter((_, i) => !fileFields[rule.required.length + i]);
+  if (rule.optional.length - missing.length < rule.atLeast) {
+    throw new ImportError(
+      `Missing column${missing.length === 1 ? '' : 's'} ${quoted(missing)}. ` +
+      `At least ${rule.atLeast} of the ${rule.optional.length} columns where some must match have to be present.`,
       table.headers,
     );
   }
@@ -126,8 +143,8 @@ function importFile(filePath, ctx) {
   // rows awaiting review from earlier files.
   const database = books.database.load();
   const keep = retentionFilter(settings.retentionDays, now);
-  const index = new MatchIndex(settings.fields.length);
-  const dbFields = resolveFields(database.headers, settings.fields);
+  const index = new MatchIndex(rule.all.length);
+  const dbFields = resolveFields(database.headers, rule.all);
   for (const row of database.rows) {
     if (keep && !keep(row)) continue;
     index.add({
@@ -146,7 +163,7 @@ function importFile(filePath, ctx) {
       sourceRow: item.rowNumber,
       headers: item.headers,
       record: item.record,
-    }, pickValues(item.record, resolveFields(item.headers, settings.fields)));
+    }, pickValues(item.record, resolveFields(item.headers, rule.all)));
   }
 
   const importedAt = now.toISOString();
@@ -154,7 +171,7 @@ function importFile(filePath, ctx) {
   const flagged = [];
   for (const row of table.rows) {
     const values = pickValues(row.values, fileFields);
-    const matches = index.find(values, threshold);
+    const matches = index.find(values, rule.atLeast, rule.required.length);
     if (matches.length) {
       flagged.push({
         id: crypto.randomUUID(),
@@ -163,12 +180,13 @@ function importFile(filePath, ctx) {
         rowNumber: row.rowNumber,
         headers: table.headers,
         record: row.values,
-        fields: [...settings.fields],
-        threshold,
+        requiredFields: [...rule.required],
+        fields: [...rule.optional],
+        threshold: rule.atLeast,
         matchCount: matches.length,
         matches: matches.slice(0, MAX_MATCHES_KEPT).map(({ entry, fields }) => ({
           ...entry,
-          fields: fields.map((f) => settings.fields[f]),
+          fields: fields.map((f) => rule.all[f]),
         })),
         decision: null,
       });
@@ -208,7 +226,7 @@ function importFile(filePath, ctx) {
     missingFields: missing,
   };
   if (missing.length) {
-    entry.message = `Compared without ${missing.map((m) => `"${m}"`).join(', ')} (not in this file).`;
+    entry.message = `Compared without ${quoted(missing)} (not in this file).`;
   }
   addLogEntry(state, entry);
   ctx.saveState();
@@ -223,6 +241,62 @@ function importFile(filePath, ctx) {
     ctx.saveState();
   }
   return entry;
+}
+
+/**
+ * Removes empty, unnamed columns ("Column V") from review items and the
+ * activity log. Earlier versions brought these in from formatting past the
+ * last column of an imported file. Returns true if anything changed.
+ */
+function tidyState(state) {
+  let changed = false;
+  const tidy = (headers, record) => {
+    const kept = headers.filter((h) => !isGeneratedHeader(h) || (record && String(record[h] ?? '').trim()));
+    if (kept.length !== headers.length) changed = true;
+    return kept;
+  };
+  for (const item of state.queue) {
+    item.headers = tidy(item.headers, item.record);
+    for (const match of item.matches) match.headers = tidy(match.headers, match.record);
+  }
+  for (const entry of state.log) {
+    if (entry.headers) entry.headers = tidy(entry.headers, null);
+  }
+  return changed;
+}
+
+/**
+ * Empties Database.xlsx, Duplicates.xlsx, the review queue and the activity
+ * log (which also forgets which files were imported, so they can be imported
+ * again). The spreadsheets are copied to the backups folder first. Settings,
+ * the inbox and processed files are left alone. Returns what was removed.
+ */
+function clearAllData(ctx) {
+  const { books, state } = ctx;
+  const now = ctx.now ?? new Date();
+  const count = (book) => {
+    try {
+      return book.load().rows.length;
+    } catch {
+      return 0;
+    }
+  };
+  const removed = {
+    databaseRows: count(books.database),
+    duplicateRows: count(books.duplicates),
+    reviewItems: state.queue.length,
+  };
+
+  // Check both first so a file open in Excel stops the whole clear, not half of it.
+  books.database.assertWritable();
+  books.duplicates.assertWritable();
+  books.database.clear(now);
+  books.duplicates.clear(now);
+
+  state.queue = [];
+  state.log = [];
+  ctx.saveState();
+  return removed;
 }
 
 /** A one-line description of where a matched entry came from. */
@@ -296,4 +370,4 @@ function applyDecisions(ctx) {
   return { duplicates: duplicates.length, added: unique.length, expired };
 }
 
-module.exports = { ImportError, importFile, applyDecisions, describeMatch, effectiveThreshold };
+module.exports = { ImportError, importFile, applyDecisions, clearAllData, describeMatch, matchRule, tidyState };

@@ -8,7 +8,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { readTable, writeTable } = require('./spreadsheet');
+const { readTable, writeTable, isGeneratedHeader } = require('./spreadsheet');
 const { normalizeHeader, resolveHeader, parseDate } = require('../shared/matcher');
 
 const DATABASE_META = ['Date Added', 'Source File', 'Source Row'];
@@ -30,6 +30,13 @@ function isLockError(err) {
 function localDate(date = new Date()) {
   const d = new Date(date);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/** yyyy-mm-dd hhmmss in local time, for file names. */
+function localTimestamp(date = new Date()) {
+  const d = new Date(date);
+  const time = [d.getHours(), d.getMinutes(), d.getSeconds()].map((n) => String(n).padStart(2, '0')).join('');
+  return `${localDate(d)} ${time}`;
 }
 
 /**
@@ -57,6 +64,7 @@ class DataBook {
     this.headers = [];
     this.rows = [];
     this.loadedMtime = undefined;
+    this.needsTidy = false;
   }
 
   get name() {
@@ -73,6 +81,7 @@ class DataBook {
     }
     if (mtime === this.loadedMtime) return this;
 
+    this.needsTidy = false;
     if (mtime === null) {
       this.headers = [];
       this.rows = [];
@@ -89,9 +98,50 @@ class DataBook {
         }
         return row;
       });
+
+      // Earlier versions saved empty, unnamed columns ("Column V") that came
+      // from formatting past the last column of an imported file.
+      const empty = this.headers.filter((h) => isGeneratedHeader(h) && this.rows.every((row) => !row.values[h]));
+      if (empty.length) {
+        this.headers = this.headers.filter((h) => !empty.includes(h));
+        for (const row of this.rows) for (const h of empty) delete row.values[h];
+        this.needsTidy = true;
+      }
     }
     this.loadedMtime = mtime;
     return this;
+  }
+
+  /**
+   * Copies the file to the backups folder, then deletes it. Returns the
+   * backup's path, or null if there was no file.
+   */
+  clear(now = new Date()) {
+    if (!fs.existsSync(this.filePath)) return null;
+    this.assertWritable();
+    const base = path.basename(this.filePath, path.extname(this.filePath));
+    const backup = path.join(this.backupDir, `${base} before clearing ${localTimestamp(now)}.xlsx`);
+    fs.mkdirSync(this.backupDir, { recursive: true });
+    fs.copyFileSync(this.filePath, backup);
+    try {
+      fs.rmSync(this.filePath);
+    } catch (err) {
+      if (isLockError(err)) throw new FileLockedError(this.filePath);
+      throw err;
+    }
+    this.headers = [];
+    this.rows = [];
+    this.loadedMtime = null; // matches load()'s "no file"
+    this.needsTidy = false;
+    return backup;
+  }
+
+  /** Saves the file if load() dropped leftover empty columns from it. Returns true if it did. */
+  tidy() {
+    this.load();
+    if (!this.needsTidy) return false;
+    this.save(this.headers, this.rows);
+    return true;
   }
 
   /** Throws FileLockedError if another program has the file open for writing. */
@@ -168,6 +218,7 @@ class DataBook {
       throw err;
     }
     this.loadedMtime = fs.statSync(this.filePath).mtimeMs;
+    this.needsTidy = false;
   }
 
   /** Keeps the first version of the file from each day, up to BACKUPS_TO_KEEP days. */
@@ -210,6 +261,7 @@ module.exports = {
   FileLockedError,
   isLockError,
   localDate,
+  localTimestamp,
   retentionFilter,
   openBooks,
 };

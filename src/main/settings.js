@@ -25,7 +25,8 @@ function defaultSettings(documentsDir) {
   return {
     inboxDir: path.join(base, 'Inbox'),
     outputDir: base,
-    fields: [],
+    requiredFields: [], // columns that must always match
+    fields: [], // columns where at least `threshold` must match
     threshold: 3,
     retentionDays: 365,
   };
@@ -52,8 +53,9 @@ function validateSettings(input, defaults) {
     errors.inboxDir = 'The inbox must be a different folder from the output folder.';
   }
 
+  // A column belongs to one list only; the must-match list wins.
   const seen = new Set();
-  settings.fields = (Array.isArray(settings.fields) ? settings.fields : [])
+  const cleanList = (list) => (Array.isArray(list) ? list : [])
     .map((f) => String(f).replace(/\s+/g, ' ').trim())
     .filter((f) => {
       const key = f.toLowerCase();
@@ -61,14 +63,22 @@ function validateSettings(input, defaults) {
       seen.add(key);
       return true;
     });
+  settings.requiredFields = cleanList(settings.requiredFields);
+  settings.fields = cleanList(settings.fields);
 
+  // The count only applies when there are columns where some must match.
   const threshold = Number(settings.threshold);
-  if (!Number.isInteger(threshold) || threshold < 1) {
-    errors.threshold = 'Enter a whole number of 1 or more.';
-  } else if (settings.fields.length && threshold > settings.fields.length) {
-    errors.threshold = `Can't be more than the ${settings.fields.length} selected column${settings.fields.length === 1 ? '' : 's'}.`;
+  const count = settings.fields.length;
+  if (!count) {
+    settings.threshold = Number.isInteger(threshold) && threshold >= 1 ? threshold : defaults.threshold;
+  } else {
+    if (!Number.isInteger(threshold) || threshold < 1) {
+      errors.threshold = 'Enter a whole number of 1 or more.';
+    } else if (threshold > count) {
+      errors.threshold = `Can't be more than the ${count} column${count === 1 ? '' : 's'} checked in this list.`;
+    }
+    settings.threshold = threshold;
   }
-  settings.threshold = threshold;
 
   const retentionDays = Number(settings.retentionDays);
   if (!Number.isInteger(retentionDays) || retentionDays < 0) {

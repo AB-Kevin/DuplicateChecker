@@ -58,3 +58,21 @@ test('index returns records matching at least the threshold', () => {
   assert.deepEqual(index.find(['', '', '', '1'], 1).map((m) => m.entry), ['d']);
   assert.deepEqual(index.find(['', '', '', ''], 1), []);
 });
+
+test('leading required fields must all match, plus enough of the rest', () => {
+  // Fields: [name (required), cpt, date, amount]
+  const index = new MatchIndex(4);
+  index.add('same-name', ['Ann Lee', '99213', '3/15/2026', '$50.00']);
+  index.add('other-name', ['Bob Ray', '99213', '3/15/2026', '$50.00']);
+
+  const atLeast2 = (values) => index.find(values, 2, 1).map((m) => m.entry);
+  assert.deepEqual(atLeast2(['ann lee', '99213', '2026-03-15', '$99.00']), ['same-name']);
+  assert.deepEqual(atLeast2(['Ann Lee', '99213', '3/20/2026', '$99.00']), [], 'only 1 of the other 3');
+  assert.deepEqual(atLeast2(['Cal Orr', '99213', '3/15/2026', '$50.00']), [], 'required name differs');
+  assert.deepEqual(atLeast2(['', '99213', '3/15/2026', '$50.00']), [], 'a blank required field never matches');
+
+  // Only required fields.
+  const nameOnly = new MatchIndex(1);
+  nameOnly.add('a', ['Ann Lee']);
+  assert.deepEqual(nameOnly.find(['ANN LEE'], 0, 1).map((m) => m.entry), ['a']);
+});

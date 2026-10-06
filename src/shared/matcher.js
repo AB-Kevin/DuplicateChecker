@@ -126,8 +126,7 @@ function pickValues(record, resolvedFields) {
 /**
  * An index over the match fields of known records. For each field it maps
  * a normalized value to the records holding it, so finding the records that
- * share at least `threshold` fields with a new row only touches records that
- * share at least one value with it.
+ * match a new row only touches records that share at least one value with it.
  */
 class MatchIndex {
   constructor(fieldCount) {
@@ -148,9 +147,10 @@ class MatchIndex {
 
   /**
    * Returns [{ entry, fields: [fieldIndex, ...] }] for every known record
-   * that matches on at least `threshold` fields, best matches first.
+   * that matches on all of the first `required` fields and on at least
+   * `atLeast` of the fields after them, best matches first.
    */
-  find(fieldValues, threshold) {
+  find(fieldValues, atLeast, required = 0) {
     const hits = new Map();
     fieldValues.forEach((value, f) => {
       const key = normalizeValue(value);
@@ -163,7 +163,10 @@ class MatchIndex {
     });
     const matches = [];
     for (const [id, fields] of hits) {
-      if (fields.length >= threshold) matches.push({ entry: this.entries[id], fields });
+      const requiredHits = fields.filter((f) => f < required).length;
+      if (requiredHits === required && fields.length - requiredHits >= atLeast) {
+        matches.push({ entry: this.entries[id], fields });
+      }
     }
     return matches.sort((a, b) => b.fields.length - a.fields.length);
   }

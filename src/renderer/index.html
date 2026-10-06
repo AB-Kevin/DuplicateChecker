@@ -102,7 +102,8 @@
 
     <!-- Settings -->
     <section class="view scroll" id="view-settings" hidden>
-      <form class="page narrow" id="settings-form" novalidate>
+      <div class="page narrow">
+      <form id="settings-form" novalidate>
         <h1>Settings</h1>
 
         <div class="form-section">
@@ -129,27 +130,37 @@
 
         <div class="form-section">
           <h2 class="section-title">Duplicate matching</h2>
-          <fieldset class="field">
-            <legend>Columns to compare</legend>
-            <p class="hint">Choose the columns that identify an entry. Column names are matched without regard to capitals or spacing.</p>
-            <div class="column-list" id="column-list"></div>
+          <p class="intro">An entry is flagged for review when <strong>every</strong> column in the first list matches an existing entry, <strong>and</strong> enough of the columns in the second list match as well. Either list can be left empty.</p>
+          <div class="field">
             <div class="input-row">
-              <input id="new-column" type="text" placeholder="Add a column by name" list="known-columns" spellcheck="false">
-              <datalist id="known-columns"></datalist>
+              <input id="new-column" type="text" placeholder="Add a column by name" spellcheck="false" aria-label="Column name">
               <button type="button" class="btn btn-secondary btn-sm" id="add-column">Add</button>
               <button type="button" class="btn btn-ghost btn-sm" id="load-columns">Read column names from a spreadsheet&hellip;</button>
             </div>
-            <p class="field-error" data-error-for="fields"></p>
-          </fieldset>
-          <div class="field">
-            <label for="threshold">Flag an entry for review when</label>
-            <p class="sentence">
-              at least <input id="threshold" name="threshold" type="number" min="1" step="1" class="num-input">
-              of the <strong id="field-count">0</strong> selected columns match an existing entry.
-            </p>
-            <p class="hint">Dates and amounts are compared by value, so 3/15/2026 matches 2026-03-15 and $1,250.00 matches 1250. Blank cells never count as a match.</p>
-            <p class="field-error" data-error-for="threshold"></p>
+            <p class="hint">Columns from files dropped into the inbox are listed automatically. Column names are matched without regard to capitals or spacing.</p>
           </div>
+
+          <fieldset class="field">
+            <legend>1. Columns that must always match</legend>
+            <p class="hint">Every column checked here has to match.</p>
+            <div class="column-list" id="required-list"></div>
+          </fieldset>
+
+          <fieldset class="field">
+            <legend>2. Columns where some must match</legend>
+            <div class="column-list" id="optional-list"></div>
+            <p class="sentence">
+              At least <input id="threshold" name="threshold" type="number" min="1" step="1" class="num-input" aria-label="How many must match">
+              of the <strong id="field-count">0</strong> columns checked here must also match.
+            </p>
+            <p class="field-error" data-error-for="threshold"></p>
+          </fieldset>
+
+          <div class="rule-summary">
+            <p class="eyebrow">Current rule</p>
+            <p id="rule-summary"></p>
+          </div>
+          <p class="hint">Dates and amounts are compared by value, so 3/15/2026 matches 2026-03-15 and $1,250.00 matches 1250. Blank cells never count as a match.</p>
         </div>
 
         <div class="form-section">
@@ -170,8 +181,30 @@
           <span class="muted small" id="settings-status"></span>
         </div>
       </form>
+
+      <div class="form-section">
+        <h2 class="section-title">Clear all data</h2>
+        <p class="intro">Start over with an empty database. This empties Database.xlsx and Duplicates.xlsx, removes every entry waiting for review, and clears the activity log so the same files can be imported again. Settings, the inbox and the Processed folder are not changed.</p>
+        <button type="button" class="btn btn-secondary" id="open-clear">Clear all data&hellip;</button>
+      </div>
+      </div>
     </section>
   </main>
+
+  <dialog class="dialog" id="clear-dialog" aria-labelledby="clear-title">
+    <form id="clear-form" novalidate>
+      <h2 id="clear-title">Clear all data?</h2>
+      <p>This permanently removes:</p>
+      <ul id="clear-summary"></ul>
+      <p class="muted small">Copies of Database.xlsx and Duplicates.xlsx are saved in the Backups folder in the output folder first.</p>
+      <label for="clear-confirm">Type <strong>Clear ALL DATA</strong> to confirm. Capitals matter.</label>
+      <input id="clear-confirm" type="text" autocomplete="off" spellcheck="false">
+      <div class="dialog-actions">
+        <button type="submit" class="btn btn-primary" id="clear-submit" disabled>Clear all data</button>
+        <button type="button" class="btn btn-secondary" id="clear-cancel">Cancel</button>
+      </div>
+    </form>
+  </dialog>
 
   <div class="drop-overlay" id="drop-overlay" hidden>
     <p>Drop spreadsheets to add them to the inbox</p>

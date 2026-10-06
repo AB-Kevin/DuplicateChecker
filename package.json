@@ -1,7 +1,7 @@
 {
   "name": "duplicate-checker",
   "productName": "Duplicate Checker",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Watches an inbox folder for spreadsheets, flags likely duplicate rows for review, and maintains a rolling database and a duplicates log.",
   "author": "Anabaptist Brotherhood",
   "main": "src/main/main.js",

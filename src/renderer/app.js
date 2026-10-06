@@ -440,7 +440,7 @@
     ui.draftDirty = false;
     ui.errors = {};
     form.inboxDir.value = ui.draft.inboxDir;
-    form.outputDir.value = ui.draft.outputDir;
+    form.dataDir.value = ui.draft.dataDir;
     form.threshold.value = ui.draft.threshold;
     form.retentionDays.value = ui.draft.retentionDays;
     renderColumns();
@@ -516,7 +516,7 @@
 
   function renderErrors() {
     for (const el of $$('[data-error-for]')) el.textContent = ui.errors[el.dataset.errorFor] ?? '';
-    for (const name of ['inboxDir', 'outputDir', 'threshold', 'retentionDays']) {
+    for (const name of ['dataDir', 'inboxDir', 'threshold', 'retentionDays']) {
       form[name].classList.toggle('invalid', Boolean(ui.errors[name]));
     }
   }
@@ -532,7 +532,7 @@
 
   form.addEventListener('input', (event) => {
     const { name, value } = event.target;
-    if (['inboxDir', 'outputDir', 'threshold', 'retentionDays'].includes(name)) {
+    if (['dataDir', 'inboxDir', 'threshold', 'retentionDays'].includes(name)) {
       ui.draft[name] = value;
       markDirty();
       if (name === 'threshold') renderRuleSummary();
@@ -602,9 +602,18 @@
       toast('Some settings need attention before they can be saved.', 'error');
       return;
     }
+    if (result.cancelled) {
+      toast('Settings were not saved.', 'info');
+      return;
+    }
     ui.data.settings = result.settings;
+    ui.selectedId = null;
     loadDraft();
-    toast('Settings saved. The inbox has been rescanned.', 'success');
+    toast({
+      use: 'Switched to the new data folder. Its matching settings are now shown here.',
+      copy: 'Your data was copied to the new data folder, and the app is now using it.',
+      empty: 'Settings saved. The app is now using the new, empty data folder.',
+    }[result.plan] ?? 'Settings saved. The inbox has been rescanned.', 'success');
     await refresh();
   });
 

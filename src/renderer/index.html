@@ -79,7 +79,7 @@
             <button class="link" data-open="duplicates">Open Duplicates.xlsx</button>
           </article>
         </div>
-        <p class="muted small drop-hint">You can also drop spreadsheets anywhere in this window to add them to the inbox. Processed files are moved to the Processed folder in the <button class="link inline" data-open="output">output folder</button>.</p>
+        <p class="muted small drop-hint">You can also drop spreadsheets anywhere in this window to add them to the inbox. Everything the app keeps, including processed files, is in the <button class="link inline" data-open="data">data folder</button>.</p>
 
         <h2 class="section-title">Recent imports</h2>
         <table class="log">
@@ -109,28 +109,28 @@
         <div class="form-section">
           <h2 class="section-title">Folders</h2>
           <div class="field">
+            <label for="dataDir">Data folder</label>
+            <div class="input-row">
+              <input id="dataDir" name="dataDir" type="text" spellcheck="false">
+              <button type="button" class="btn btn-secondary btn-sm" data-browse="dataDir">Browse&hellip;</button>
+            </div>
+            <p class="hint">Everything the app keeps is stored here: Database.xlsx, Duplicates.xlsx, entries waiting for review, the activity log, the matching and retention settings below, processed files and backups. To share it or hand it to someone else, put it in OneDrive; they choose the same folder as their data folder.</p>
+            <p class="field-error" data-error-for="dataDir"></p>
+          </div>
+          <div class="field">
             <label for="inboxDir">Inbox folder</label>
             <div class="input-row">
               <input id="inboxDir" name="inboxDir" type="text" spellcheck="false">
               <button type="button" class="btn btn-secondary btn-sm" data-browse="inboxDir">Browse&hellip;</button>
             </div>
-            <p class="hint">The app watches this folder. Drop each week's spreadsheet here.</p>
+            <p class="hint">The app watches this folder. Drop each week's spreadsheet here. If it is the data folder's Inbox folder, it moves with the data folder.</p>
             <p class="field-error" data-error-for="inboxDir"></p>
-          </div>
-          <div class="field">
-            <label for="outputDir">Output folder</label>
-            <div class="input-row">
-              <input id="outputDir" name="outputDir" type="text" spellcheck="false">
-              <button type="button" class="btn btn-secondary btn-sm" data-browse="outputDir">Browse&hellip;</button>
-            </div>
-            <p class="hint">Database.xlsx, Duplicates.xlsx, processed files and daily backups are kept here.</p>
-            <p class="field-error" data-error-for="outputDir"></p>
           </div>
         </div>
 
         <div class="form-section">
           <h2 class="section-title">Duplicate matching</h2>
-          <p class="intro">An entry is flagged for review when <strong>every</strong> column in the first list matches an existing entry, <strong>and</strong> enough of the columns in the second list match as well. Either list can be left empty.</p>
+          <p class="intro">An entry is flagged for review when <strong>every</strong> column in the first list matches an existing entry, <strong>and</strong> enough of the columns in the second list match as well. Either list can be left empty. These settings are stored in the data folder, so anyone using it compares entries the same way.</p>
           <div class="field">
             <div class="input-row">
               <input id="new-column" type="text" placeholder="Add a column by name" spellcheck="false" aria-label="Column name">
@@ -196,7 +196,7 @@
       <h2 id="clear-title">Clear all data?</h2>
       <p>This permanently removes:</p>
       <ul id="clear-summary"></ul>
-      <p class="muted small">Copies of Database.xlsx and Duplicates.xlsx are saved in the Backups folder in the output folder first.</p>
+      <p class="muted small">Copies of Database.xlsx and Duplicates.xlsx are saved in the Backups folder in the data folder first.</p>
       <label for="clear-confirm">Type <strong>Clear ALL DATA</strong> to confirm. Capitals matter.</label>
       <input id="clear-confirm" type="text" autocomplete="off" spellcheck="false">
       <div class="dialog-actions">

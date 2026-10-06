@@ -16,7 +16,7 @@ function setup(overrides = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dupcheck-'));
   const settings = {
     inboxDir: path.join(root, 'Inbox'),
-    outputDir: path.join(root, 'Output'),
+    dataDir: path.join(root, 'Data'),
     fields: ['Member ID', 'PatientName', 'CPT Code', 'Service Date'],
     threshold: 3,
     retentionDays: 365,
@@ -24,7 +24,7 @@ function setup(overrides = {}) {
   };
   fs.mkdirSync(settings.inboxDir, { recursive: true });
   const state = { queue: [], log: [] };
-  const ctx = { settings, state, books: openBooks(settings.outputDir), saveState() {} };
+  const ctx = { settings, state, books: openBooks(settings.dataDir), saveState() {} };
   const drop = (name, rows, headers = HEADERS) => {
     const sheet = XLSX.utils.aoa_to_sheet([headers, ...rows]);
     const book = XLSX.utils.book_new();
@@ -33,7 +33,7 @@ function setup(overrides = {}) {
     XLSX.writeFile(book, file);
     return file;
   };
-  const read = (name) => readTable(path.join(settings.outputDir, name));
+  const read = (name) => readTable(path.join(settings.dataDir, name));
   return { root, settings, state, ctx, drop, read };
 }
 
@@ -50,7 +50,7 @@ test('first import goes straight to the database; in-file duplicates are flagged
   assert.equal(entry.added, 2);
   assert.equal(entry.flagged, 1);
   assert.equal(fs.existsSync(file), false, 'file moved out of the inbox');
-  assert.equal(fs.readdirSync(path.join(settings.outputDir, 'Processed')).length, 1);
+  assert.equal(fs.readdirSync(path.join(settings.dataDir, 'Processed')).length, 1);
 
   const db = read('Database.xlsx');
   assert.deepEqual(db.headers, [...HEADERS, 'Date Added', 'Source File', 'Source Row']);
@@ -163,7 +163,7 @@ test('a column named like a bookkeeping column is renamed, not overwritten', () 
 test('empty unnamed columns saved by earlier versions are removed from the database', () => {
   const { ctx, read } = setup();
   const book = ctx.books.database;
-  fs.mkdirSync(ctx.settings.outputDir, { recursive: true });
+  fs.mkdirSync(ctx.settings.dataDir, { recursive: true });
   writeTable(book.filePath, {
     sheetName: 'Database',
     headers: ['Member ID', 'Column V', 'Column W', 'Column X', 'Date Added', 'Source File', 'Source Row'],
@@ -237,10 +237,10 @@ test('clearing all data empties everything, keeps backups, and allows re-importi
 
   const removed = clearAllData(ctx);
   assert.deepEqual(removed, { databaseRows: 1, duplicateRows: 1, reviewItems: 1 });
-  assert.equal(fs.existsSync(path.join(settings.outputDir, 'Database.xlsx')), false);
-  assert.equal(fs.existsSync(path.join(settings.outputDir, 'Duplicates.xlsx')), false);
+  assert.equal(fs.existsSync(path.join(settings.dataDir, 'Database.xlsx')), false);
+  assert.equal(fs.existsSync(path.join(settings.dataDir, 'Duplicates.xlsx')), false);
   assert.deepEqual(state, { queue: [], log: [] });
-  const backups = fs.readdirSync(path.join(settings.outputDir, 'Backups'));
+  const backups = fs.readdirSync(path.join(settings.dataDir, 'Backups'));
   assert.ok(backups.some((f) => /^Database before clearing .+\.xlsx$/.test(f)));
   assert.ok(backups.some((f) => /^Duplicates before clearing .+\.xlsx$/.test(f)));
 

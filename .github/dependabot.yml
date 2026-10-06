@@ -1,0 +1,28 @@
+# Dependabot version updates. Dependabot alerts and security updates are
+# switched on separately, under the repository's Settings > Code security.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    # Minor and patch updates arrive together in one pull request; each major
+    # update (a new Electron version, for example) gets its own.
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+    ignore:
+      # SheetJS is installed from cdn.sheetjs.com because the npm registry copy
+      # is outdated and has known vulnerabilities. Dependabot can't update it;
+      # see the README for how to update it by hand.
+      - dependency-name: xlsx
+
+  # The actions used by the release workflow.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday

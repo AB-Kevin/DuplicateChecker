@@ -23,8 +23,8 @@ Files already in the inbox when the app starts are picked up then, so nothing is
 
 | Setting | What it does |
 | --- | --- |
-| Inbox folder | The folder the app watches. |
-| Output folder | Holds Database.xlsx, Duplicates.xlsx, `Processed/` and `Backups/`. |
+| Data folder | Holds everything the app keeps; see [The data folder](#the-data-folder). |
+| Inbox folder | The folder the app watches. By default the `Inbox` folder inside the data folder, in which case it moves when the data folder does. |
 | Columns that must always match | Every column checked here has to match for a row to be flagged. |
 | Columns where some must match | At least *N* of the columns checked here also have to match. A column can be in only one of the two lists. Columns from files you've dropped in are listed automatically; you can also read them from a spreadsheet or type them. The **Current rule** box spells out the combined rule. |
 | Keep database entries for *N* days | Entries older than this are removed from Database.xlsx at the next import or save, and new files are no longer compared against them. `0` keeps entries indefinitely. |
@@ -40,6 +40,26 @@ Files already in the inbox when the app starts are picked up then, so nothing is
 
 If a file is missing a column from the **must always match** list, it stays in the inbox and the Activity screen explains why. If it is missing some of the **some must match** columns, it is checked on the ones it has, as long as at least *N* are present.
 
+## The data folder
+
+Everything the app keeps is in one folder, chosen under **Settings → Data folder**:
+
+| In the data folder | What it is |
+| --- | --- |
+| `Database.xlsx` | Every entry that isn't a duplicate, within the retention period |
+| `Duplicates.xlsx` | Entries confirmed as duplicates |
+| `App data/review-state.json` | Entries waiting for review (including decisions not yet saved) and the activity log |
+| `App data/settings.json` | The matching rules and retention period |
+| `Processed/` | Imported files |
+| `Backups/` | Daily copies of the two spreadsheets |
+| `Inbox/` | The default inbox |
+
+Each computer only remembers where the data folder and the inbox are.
+
+**Moving to OneDrive or handing it off.** Choose a folder in OneDrive as the data folder and save. If the new folder is empty, the app offers to copy everything there; the old folder is left as it was, so you can delete it once you've checked the new one. To hand the work to someone else, share the OneDrive folder with them. They install the app and choose the same folder as their data folder. The app recognizes it and switches to it, including its matching settings, its database and the entries waiting for review.
+
+**One person at a time.** The app expects only one copy to be using a data folder at once. If two people have it open on the same OneDrive folder, both may import the same inbox file, and OneDrive may keep two conflicting copies of the review queue. When handing off, close the app on your computer first and let OneDrive finish syncing.
+
 ## Good to know
 
 - **Close Database.xlsx and Duplicates.xlsx in Excel before saving decisions.** If one is open, the app says so and keeps your decisions until you try again. Nothing is half-saved.
@@ -49,7 +69,7 @@ If a file is missing a column from the **must always match** list, it stays in t
 - **Correlated columns:** if two compare columns usually move together (for example a procedure code and its standard charge), "3 of 4" behaves more like "2 of 3". Choose columns that each say something different about the entry.
 - Only the first worksheet of each file is read, and its first non-blank row is treated as the header row.
 - Columns with neither a header nor any data are ignored, such as columns that are formatted but empty past the last real column. A column with data but no header is kept and named by its letter, for example `Column V`.
-- Review decisions and the activity log are stored in the app's profile folder (`%APPDATA%\Duplicate Checker`). Settings are stored there too.
+- Only the data folder and inbox locations are stored on each computer (in `%APPDATA%\Duplicate Checker`). Everything else is in the data folder.
 - The app has to be running to watch the inbox. Only one copy can run at a time.
 
 ## Development
@@ -63,6 +83,34 @@ npm test        # matching and import tests
 npm run dist    # build a Windows installer into dist/
 ```
 
+### Releasing
+
+Pushing a version tag builds the Windows installer on GitHub and publishes it as a release (`.github/workflows/release.yml`). Once your changes are committed:
+
+```bash
+npm version patch   # or minor / major: runs the tests, bumps the version, commits, and tags vX.Y.Z
+git push            # or Push origin in GitHub Desktop; the new tag goes with it
+```
+
+The release appears on the repository's **Releases** page a few minutes later as `DuplicateChecker-Setup-X.Y.Z.exe`, with notes listing the changes since the previous release. Follow the build under the **Actions** tab. The build stops without publishing if the tag doesn't match the version in package.json or a test fails.
+
+- `npm version` stops without changing anything if there are uncommitted changes or a test fails.
+- This clone pushes tags with commits because `push.followTags` is set in its `.git/config`. That setting isn't part of the repository, so in any new clone run `git config push.followTags true` once, or push with `git push --follow-tags`.
+- The installer isn't code-signed, so Windows SmartScreen shows "Windows protected your PC" the first time it runs. Choose **More info**, then **Run anyway**.
+- To build the installer locally instead, run `npm run dist`. It is written to `dist/`.
+
+### Dependencies
+
+Dependabot (`.github/dependabot.yml`) checks the npm dependencies every Monday. Minor and patch updates come as one pull request; each major update gets its own.
+
+SheetJS (`xlsx`) is the exception. It is installed from cdn.sheetjs.com because the npm registry copy is outdated and has known vulnerabilities, so Dependabot skips it. To update it, check [cdn.sheetjs.com](https://cdn.sheetjs.com) for the latest version and run:
+
+```bash
+npm install https://cdn.sheetjs.com/xlsx-X.Y.Z/xlsx-X.Y.Z.tgz
+```
+
+### Layout
+
 | Path | Contents |
 | --- | --- |
 | `src/main/main.js` | Electron main process: window, IPC, wiring |
@@ -70,7 +118,12 @@ npm run dist    # build a Windows installer into dist/
 | `src/main/books.js` | Database.xlsx / Duplicates.xlsx, retention, backups |
 | `src/main/spreadsheet.js` | Reading and writing spreadsheets (SheetJS) |
 | `src/main/inbox.js` | Inbox folder watcher |
-| `src/main/settings.js` | Settings defaults and validation |
+| `src/main/settings.js` | Settings defaults, validation, loading and saving |
+| `src/main/datafolder.js` | Data folder layout: copying, summarizing, moving data from earlier versions |
+| `src/main/jsonfile.js` | Reading and writing JSON files safely |
 | `src/shared/matcher.js` | Value normalization and the match index (also used by the review screen) |
 | `src/preload/preload.js` | The API exposed to the page |
 | `src/renderer/` | The interface |
+| `build/icon.png` | App and installer icon |
+| `.github/workflows/release.yml` | Builds and publishes a release when a version tag is pushed |
+| `.github/dependabot.yml` | Weekly dependency update checks |

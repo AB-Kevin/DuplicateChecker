@@ -27,7 +27,7 @@ test('the count is checked against the some-must-match list only', () => {
 });
 
 test('settings saved before must-match columns existed still load', () => {
-  const { settings, errors } = validateSettings({ inboxDir: 'C:/In', outputDir: 'C:/Out', fields: ['A', 'B', 'C'], threshold: 2 }, defaults);
+  const { settings, errors } = validateSettings({ inboxDir: 'C:/In', dataDir: 'C:/Data', fields: ['A', 'B', 'C'], threshold: 2 }, defaults);
   assert.deepEqual(errors, {});
   assert.deepEqual(settings.requiredFields, []);
 });

@@ -65,8 +65,8 @@ function matchRule(settings) {
 const quoted = (names) => names.map((n) => `"${n}"`).join(', ');
 
 /** Moves a file into the Processed folder, prefixed with the time it was handled. */
-function moveToProcessed(filePath, outputDir, now) {
-  const dir = path.join(outputDir, 'Processed');
+function moveToProcessed(filePath, dataDir, now) {
+  const dir = path.join(dataDir, 'Processed');
   fs.mkdirSync(dir, { recursive: true });
   const target = path.join(dir, `${localTimestamp(now)} ${path.basename(filePath)}`);
   try {
@@ -104,7 +104,7 @@ function importFile(filePath, ctx) {
       status: 'skipped',
       message: `Identical to ${earlier.file}, imported ${localDate(earlier.at)}. Moved to Processed without importing.`,
     };
-    moveToProcessed(filePath, settings.outputDir, now);
+    moveToProcessed(filePath, settings.dataDir, now);
     addLogEntry(state, entry);
     ctx.saveState();
     return entry;
@@ -234,7 +234,7 @@ function importFile(filePath, ctx) {
   // The import is recorded by now, so if the move fails the file is
   // recognized as already imported the next time it is seen.
   try {
-    moveToProcessed(filePath, settings.outputDir, now);
+    moveToProcessed(filePath, settings.dataDir, now);
   } catch (err) {
     entry.message = [entry.message, `Imported, but could not move the file to Processed: ${err.message}`]
       .filter(Boolean).join(' ');

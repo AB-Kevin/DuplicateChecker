@@ -3,13 +3,15 @@
   "productName": "Duplicate Checker",
   "version": "0.0.1",
   "description": "Watches an inbox folder for spreadsheets, flags likely duplicate rows for review, and maintains a rolling database and a duplicates log.",
+  "author": "Anabaptist Brotherhood",
   "main": "src/main/main.js",
   "private": true,
   "scripts": {
     "postinstall": "node node_modules/electron/install.js",
     "start": "electron .",
     "test": "node --test \"test/*.test.js\"",
-    "dist": "electron-builder --win"
+    "preversion": "npm test",
+    "dist": "electron-builder --win --publish never"
   },
   "dependencies": {
     "@fontsource/poppins": "^5.3.0",
@@ -27,12 +29,15 @@
       "src/**/*",
       "package.json"
     ],
+    "publish": null,
     "win": {
-      "target": "nsis"
+      "target": "nsis",
+      "icon": "build/icon.png"
     },
     "nsis": {
       "oneClick": false,
-      "allowToChangeInstallationDirectory": true
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "DuplicateChecker-Setup-${version}.${ext}"
     }
   }
 }

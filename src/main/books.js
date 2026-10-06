@@ -236,17 +236,17 @@ class DataBook {
   }
 }
 
-function openBooks(outputDir) {
-  const backupDir = path.join(outputDir, 'Backups');
+function openBooks(dataDir) {
+  const backupDir = path.join(dataDir, 'Backups');
   return {
     database: new DataBook({
-      filePath: path.join(outputDir, 'Database.xlsx'),
+      filePath: path.join(dataDir, 'Database.xlsx'),
       sheetName: 'Database',
       metaHeaders: DATABASE_META,
       backupDir,
     }),
     duplicates: new DataBook({
-      filePath: path.join(outputDir, 'Duplicates.xlsx'),
+      filePath: path.join(dataDir, 'Duplicates.xlsx'),
       sheetName: 'Duplicates',
       metaHeaders: DUPLICATES_META,
       backupDir,

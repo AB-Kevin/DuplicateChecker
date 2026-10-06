@@ -3,7 +3,9 @@
 const fs = require('fs');
 const path = require('path');
 const { app, BrowserWindow, ipcMain, dialog, shell, Notification, Menu } = require('electron');
-const { readJson, writeJson, defaultSettings, validateSettings } = require('./settings');
+const { defaultSettings, validateSettings, loadSettings, saveSettings } = require('./settings');
+const { statePath, defaultInbox, samePath, summarize, copyData, loadState } = require('./datafolder');
+const { writeJson } = require('./jsonfile');
 const { openBooks } = require('./books');
 const { InboxWatcher } = require('./inbox');
 const { importFile, applyDecisions, clearAllData, ImportError, tidyState } = require('./processor');
@@ -22,12 +24,14 @@ let state; // { queue: [...], log: [...] }
 let books;
 let watcher;
 
-const settingsPath = () => path.join(app.getPath('userData'), 'settings.json');
-const statePath = () => path.join(app.getPath('userData'), 'review-state.json');
+// Only the folder locations are kept in the app's profile; see datafolder.js.
+const localSettingsPath = () => path.join(app.getPath('userData'), 'settings.json');
+// Where earlier versions kept the review queue and activity log.
+const legacyStatePath = () => path.join(app.getPath('userData'), 'review-state.json');
 const defaults = () => defaultSettings(app.getPath('documents'));
 
 function saveState() {
-  writeJson(statePath(), state);
+  writeJson(statePath(settings.dataDir), state);
 }
 
 // Imports and decision saves both rewrite Database.xlsx, so they run one at a time.
@@ -116,7 +120,7 @@ function snapshot() {
     settings,
     paths: {
       inbox: settings.inboxDir,
-      output: settings.outputDir,
+      data: settings.dataDir,
       database: books.database.filePath,
       duplicates: books.duplicates.filePath,
     },
@@ -132,8 +136,8 @@ function snapshot() {
 // Called at startup or from within exclusive(), before the watcher (re)starts,
 // so nothing else is writing the spreadsheets while they are tidied.
 async function configure() {
-  fs.mkdirSync(settings.outputDir, { recursive: true });
-  books = openBooks(settings.outputDir);
+  books = openBooks(settings.dataDir);
+  fs.mkdirSync(settings.dataDir, { recursive: true });
   for (const book of [books.database, books.duplicates]) {
     try {
       book.tidy();
@@ -142,6 +146,51 @@ async function configure() {
     }
   }
   await watcher.start(settings.inboxDir);
+}
+
+/** Loads the review queue and activity log from the data folder, then opens its spreadsheets and the inbox. */
+async function openDataFolder() {
+  state = loadState(settings.dataDir, legacyStatePath());
+  if (tidyState(state)) saveState();
+  await configure();
+}
+
+/**
+ * Asks what to do when the data folder is changed: 'use' a folder that
+ * already has data, 'copy' the current data into an empty one, or start
+ * 'empty'. Returns null if the user cancels.
+ */
+async function planDataFolderChange(fromDir, toDir) {
+  const target = summarize(toDir);
+  if (target.inUse) {
+    const parts = [count(target.reviewItems, 'entry', 'entries') + ' waiting for review'];
+    if (target.database) parts.push('a database');
+    const { response } = await dialog.showMessageBox(win, {
+      type: 'question',
+      title: 'Use this data folder?',
+      message: 'This folder already has Duplicate Checker data.',
+      detail: `${toDir}\n\nIt has ${parts.join(' and ')}. The app will switch to it, and its matching settings will replace the ones on the Settings screen. Nothing in the current data folder is changed.`,
+      buttons: ['Use this folder', 'Cancel'],
+      defaultId: 0,
+      cancelId: 1,
+      noLink: true,
+    });
+    return response === 0 ? 'use' : null;
+  }
+
+  const current = summarize(fromDir);
+  if (!current.hasData) return 'empty';
+  const { response } = await dialog.showMessageBox(win, {
+    type: 'question',
+    title: 'Copy your data?',
+    message: 'Copy your data to the new data folder?',
+    detail: `The new folder is empty. Copy the database, duplicates, ${count(current.reviewItems, 'entry', 'entries')} waiting for review, the activity log, processed files and backups from:\n${fromDir}\n\nThe old folder is left as it is. You can delete it once you've checked the new one.`,
+    buttons: ['Copy my data', 'Start empty', 'Cancel'],
+    defaultId: 0,
+    cancelId: 2,
+    noLink: true,
+  });
+  return ['copy', 'empty', null][response];
 }
 
 function uniqueTarget(dir, name) {
@@ -178,13 +227,35 @@ function registerIpc() {
   handle('settings:save', async (input) => {
     const { settings: next, errors } = validateSettings(input, defaults());
     if (Object.keys(errors).length) return { errors };
-    const foldersChanged = next.inboxDir !== settings.inboxDir || next.outputDir !== settings.outputDir;
-    writeJson(settingsPath(), next);
-    settings = next;
-    if (foldersChanged) await exclusive(() => configure());
+    const dataChanged = !samePath(next.dataDir, settings.dataDir);
+    // An inbox kept in the data folder's Inbox folder moves with the data folder.
+    const inboxFollows = dataChanged && samePath(next.inboxDir, settings.inboxDir)
+      && samePath(settings.inboxDir, defaultInbox(settings.dataDir));
+    if (inboxFollows) next.inboxDir = defaultInbox(next.dataDir);
+
+    const plan = dataChanged ? await planDataFolderChange(settings.dataDir, next.dataDir) : 'keep';
+    if (!plan) return { cancelled: true };
+
+    await exclusive(async () => {
+      if (plan === 'copy') {
+        await watcher.stop();
+        copyData(settings.dataDir, next.dataDir, { includeInbox: inboxFollows });
+      }
+      const inboxChanged = !samePath(next.inboxDir, settings.inboxDir);
+      if (plan === 'use') {
+        // The folder's own matching settings replace the ones on the form.
+        saveSettings(localSettingsPath(), next, { localOnly: true });
+        settings = loadSettings(localSettingsPath(), defaults()).settings;
+      } else {
+        saveSettings(localSettingsPath(), next);
+        settings = next;
+      }
+      if (dataChanged) await openDataFolder();
+      else if (inboxChanged) await configure();
+    });
     watcher.rescan(true);
     stateChanged();
-    return { settings };
+    return { settings, plan };
   });
 
   handle('dialog:folder', async (current) => {
@@ -248,7 +319,7 @@ function registerIpc() {
   handle('open', async (target) => {
     const where = {
       inbox: settings.inboxDir,
-      output: settings.outputDir,
+      data: settings.dataDir,
       database: books.database.filePath,
       duplicates: books.duplicates.filePath,
     }[target];
@@ -296,17 +367,28 @@ app.whenReady().then(async () => {
   app.setAppUserModelId(APP_ID);
   Menu.setApplicationMenu(null);
 
-  const stored = readJson(settingsPath(), null);
-  settings = validateSettings(stored ?? {}, defaults()).settings;
-  if (!stored) writeJson(settingsPath(), settings);
-  state = { queue: [], log: [], ...readJson(statePath(), {}) };
-  if (tidyState(state)) saveState();
-
+  const loaded = loadSettings(localSettingsPath(), defaults());
+  settings = loaded.settings;
+  state = { queue: [], log: [] };
+  books = openBooks(settings.dataDir);
   watcher = new InboxWatcher(processInboxFile);
   watcher.on('status', stateChanged);
   registerIpc();
   createWindow();
-  await configure();
+
+  try {
+    // Rewrites the local file with folder locations only, and gives a data
+    // folder without settings of its own (a new one, or one from an earlier
+    // version) the current matching settings.
+    saveSettings(localSettingsPath(), settings, { localOnly: loaded.sharedFound });
+    await openDataFolder();
+  } catch (err) {
+    dialog.showErrorBox(
+      'Data folder unavailable',
+      `The data folder could not be opened:\n${settings.dataDir}\n\n${err.message}\n\nChoose a different data folder in Settings.`,
+    );
+  }
+  stateChanged();
 });
 
 app.on('window-all-closed', () => {

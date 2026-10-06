@@ -1,39 +1,26 @@
 'use strict';
 
-const fs = require('fs');
 const path = require('path');
+const { readJson, writeJson } = require('./jsonfile');
+const { sharedSettingsPath, defaultInbox, samePath } = require('./datafolder');
 
-/** Reads JSON, falling back to `fallback` when the file is missing or unreadable. */
-function readJson(filePath, fallback) {
-  try {
-    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
-  } catch {
-    return fallback;
-  }
-}
+// Folder locations differ from computer to computer, so they are kept in the
+// app's profile. Everything else travels with the data folder.
+const LOCAL_KEYS = ['dataDir', 'inboxDir'];
+const SHARED_KEYS = ['requiredFields', 'fields', 'threshold', 'retentionDays'];
 
-/** Writes JSON beside the target and renames it into place. */
-function writeJson(filePath, data) {
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  const tempPath = `${filePath}.tmp`;
-  fs.writeFileSync(tempPath, JSON.stringify(data, null, 2));
-  fs.renameSync(tempPath, filePath);
-}
+const pick = (object, keys) => Object.fromEntries(keys.filter((k) => k in object).map((k) => [k, object[k]]));
 
 function defaultSettings(documentsDir) {
-  const base = path.join(documentsDir, 'Duplicate Checker');
+  const dataDir = path.join(documentsDir, 'Duplicate Checker');
   return {
-    inboxDir: path.join(base, 'Inbox'),
-    outputDir: base,
+    dataDir,
+    inboxDir: defaultInbox(dataDir),
     requiredFields: [], // columns that must always match
     fields: [], // columns where at least `threshold` must match
     threshold: 3,
     retentionDays: 365,
   };
-}
-
-function samePath(a, b) {
-  return path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase();
 }
 
 /**
@@ -44,13 +31,13 @@ function validateSettings(input, defaults) {
   const errors = {};
   const settings = { ...defaults, ...input };
 
-  for (const key of ['inboxDir', 'outputDir']) {
+  for (const key of LOCAL_KEYS) {
     settings[key] = String(settings[key] ?? '').trim();
     if (!settings[key]) errors[key] = 'Choose a folder.';
     else if (!path.isAbsolute(settings[key])) errors[key] = 'Use a full folder path.';
   }
-  if (!errors.inboxDir && !errors.outputDir && samePath(settings.inboxDir, settings.outputDir)) {
-    errors.inboxDir = 'The inbox must be a different folder from the output folder.';
+  if (!errors.inboxDir && !errors.dataDir && samePath(settings.inboxDir, settings.dataDir)) {
+    errors.inboxDir = 'The inbox must be a different folder from the data folder. Its Inbox folder works well.';
   }
 
   // A column belongs to one list only; the must-match list wins.
@@ -86,7 +73,31 @@ function validateSettings(input, defaults) {
   }
   settings.retentionDays = retentionDays;
 
-  return { settings, errors };
+  return { settings: pick(settings, [...LOCAL_KEYS, ...SHARED_KEYS]), errors };
 }
 
-module.exports = { readJson, writeJson, defaultSettings, validateSettings };
+/**
+ * Reads the folder locations from `localPath` and the rest from the data
+ * folder. Settings files from before the data folder held everything named it
+ * `outputDir` and kept the matching rules locally; those rules are used until
+ * the data folder has its own. Returns { settings, sharedFound }.
+ */
+function loadSettings(localPath, defaults) {
+  const stored = readJson(localPath, {});
+  const dataDir = stored.dataDir ?? stored.outputDir ?? defaults.dataDir;
+  const shared = readJson(sharedSettingsPath(dataDir), null);
+  const { settings } = validateSettings({
+    ...pick(stored, LOCAL_KEYS),
+    dataDir,
+    ...(shared ? pick(shared, SHARED_KEYS) : pick(stored, SHARED_KEYS)),
+  }, defaults);
+  return { settings, sharedFound: Boolean(shared) };
+}
+
+/** Writes the folder locations to `localPath`, and unless `localOnly`, the rest to the data folder. */
+function saveSettings(localPath, settings, { localOnly = false } = {}) {
+  writeJson(localPath, pick(settings, LOCAL_KEYS));
+  if (!localOnly) writeJson(sharedSettingsPath(settings.dataDir), pick(settings, SHARED_KEYS));
+}
+
+module.exports = { LOCAL_KEYS, SHARED_KEYS, defaultSettings, validateSettings, loadSettings, saveSettings };

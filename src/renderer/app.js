@@ -85,6 +85,8 @@
     if (ui.view === 'settings') {
       renderSharing();
       renderColumns();
+      renderTheme();
+      renderUpdate();
     }
   }
 
@@ -768,6 +770,72 @@
       empty: 'Settings saved. The app is now using the new, empty data folder.',
     }[result.plan] ?? (isHost() ? 'Settings saved. The inbox has been rescanned.' : 'Settings saved.'), 'success');
   });
+
+  // Appearance and updates -----------------------------------------------
+
+  function renderTheme() {
+    for (const button of $$('[data-theme]')) {
+      button.setAttribute('aria-pressed', String(button.dataset.theme === ui.data.settings.theme));
+    }
+  }
+
+  $$('[data-theme]').forEach((button) => button.addEventListener('click', async () => {
+    ui.data.settings.theme = button.dataset.theme;
+    renderTheme();
+    await attempt(() => api.setTheme(button.dataset.theme));
+  }));
+
+  // release: the last check's result, { version, newer, publishedAt, hasInstaller }.
+  // percent: how much of the installer has downloaded, while it downloads.
+  const update = { checking: false, release: null, installing: false, percent: null };
+
+  function renderUpdate() {
+    const { checking, release, installing, percent } = update;
+    $('#app-version').textContent = ui.data.version;
+    $('#check-update').disabled = checking || installing;
+    $('#update-status').textContent = checking ? 'Checking for updates…' : release && !release.newer ? 'You have the latest version.' : '';
+    $('#update-panel').hidden = !release?.newer;
+    if (!release?.newer) return;
+    $('#update-title').textContent = `Version ${release.version} is available`;
+    $('#update-detail').textContent = [
+      release.publishedAt && `Released ${formatDay(release.publishedAt)}.`,
+      release.hasInstaller
+        ? 'Duplicate Checker closes while the update installs. Your decisions are kept.'
+        : 'Its installer isn\'t ready yet. Try again in a few minutes.',
+    ].filter(Boolean).join(' ');
+    const install = $('#install-update');
+    install.hidden = !release.hasInstaller;
+    install.disabled = installing;
+    install.textContent = !installing ? 'Download and install'
+      : percent === 100 ? 'Downloaded'
+        : `Downloading…${percent === null ? '' : ` ${percent}%`}`;
+  }
+
+  $('#check-update').addEventListener('click', async () => {
+    update.checking = true;
+    update.release = null;
+    renderUpdate();
+    update.release = (await attempt(() => api.checkForUpdate())) ?? null;
+    update.checking = false;
+    renderUpdate();
+  });
+
+  // Asks first, and closes the app if the update is installed.
+  $('#install-update').addEventListener('click', async () => {
+    update.installing = true;
+    renderUpdate();
+    await attempt(() => api.installUpdate());
+    update.installing = false;
+    update.percent = null;
+    renderUpdate();
+  });
+
+  api.onUpdateProgress(({ percent }) => {
+    update.percent = percent;
+    renderUpdate();
+  });
+
+  $('#release-page').addEventListener('click', () => attempt(() => api.openReleasePage()));
 
   // Clear all data -------------------------------------------------------
 

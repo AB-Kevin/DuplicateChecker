@@ -7,8 +7,10 @@ const { sharedSettingsPath, defaultInbox, samePath } = require('./datafolder');
 // Folder locations and who is using this computer differ from computer to
 // computer, so they are kept in the app's profile. Everything else travels
 // with the data folder.
-const LOCAL_KEYS = ['dataDir', 'inboxDir', 'personId', 'personName', 'isHost', 'hostSince'];
+const LOCAL_KEYS = ['dataDir', 'inboxDir', 'personId', 'personName', 'isHost', 'hostSince', 'theme'];
 const SHARED_KEYS = ['requiredFields', 'fields', 'threshold', 'retentionDays'];
+// 'system' follows Windows' light or dark setting.
+const THEMES = ['system', 'light', 'dark'];
 
 const pick = (object, keys) => Object.fromEntries(keys.filter((k) => k in object).map((k) => [k, object[k]]));
 
@@ -21,6 +23,7 @@ function defaultSettings(documentsDir, userName = 'Me') {
     personName: userName, // shown to others using the same data folder
     isHost: true, // see team.js
     hostSince: null,
+    theme: 'system',
     requiredFields: [], // columns that must always match
     fields: [], // columns where at least `threshold` must match
     threshold: 3,
@@ -40,6 +43,7 @@ function validateSettings(input, defaults) {
   if (!settings.personName) errors.personName = 'Enter the name others will see.';
   else if (settings.personName.length > 60) errors.personName = 'Use 60 characters or fewer.';
   settings.isHost = settings.isHost === true;
+  if (!THEMES.includes(settings.theme)) settings.theme = defaults.theme;
 
   for (const key of ['dataDir', 'inboxDir']) {
     settings[key] = String(settings[key] ?? '').trim();
@@ -110,4 +114,4 @@ function saveSettings(localPath, settings, { localOnly = false } = {}) {
   if (!localOnly) writeJson(sharedSettingsPath(settings.dataDir), pick(settings, SHARED_KEYS));
 }
 
-module.exports = { LOCAL_KEYS, SHARED_KEYS, defaultSettings, validateSettings, loadSettings, saveSettings };
+module.exports = { LOCAL_KEYS, SHARED_KEYS, THEMES, defaultSettings, validateSettings, loadSettings, saveSettings };

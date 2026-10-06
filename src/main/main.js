@@ -4,14 +4,16 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
-const { app, BrowserWindow, ipcMain, dialog, shell, Notification, Menu } = require('electron');
-const { defaultSettings, validateSettings, loadSettings, saveSettings } = require('./settings');
+const { spawn } = require('child_process');
+const { app, BrowserWindow, ipcMain, dialog, shell, Notification, Menu, nativeTheme, net } = require('electron');
+const { THEMES, defaultSettings, validateSettings, loadSettings, saveSettings } = require('./settings');
 const { statePath, defaultInbox, samePath, summarize, copyData, loadState } = require('./datafolder');
 const { writeJson } = require('./jsonfile');
 const { openBooks } = require('./books');
 const { InboxWatcher } = require('./inbox');
 const { importFile, clearAllData, ImportError, tidyState } = require('./processor');
 const { readHeaders, isSpreadsheet, SPREADSHEET_EXTENSIONS } = require('./spreadsheet');
+const { RELEASES_PAGE, checkForUpdate, downloadInstaller } = require('./updates');
 const {
   Team, readPeople, isActive, activeHosts, firstSentDecisions, saveSentDecisions, settleDecisions, annotateQueue,
 } = require('./team');
@@ -20,6 +22,8 @@ const APP_ID = 'org.anabaptistbrotherhood.duplicatechecker';
 const CLEAR_PHRASE = 'Clear ALL DATA'; // must match the Settings screen's confirmation
 // The same file electron-builder uses for the installer and .exe (package.json "build").
 const APP_ICON = path.join(__dirname, '..', '..', 'build', 'icon.png');
+// The window's color before the page paints: --surface-page in styles.css.
+const WINDOW_BACKGROUND = { light: '#FFFFFF', dark: '#1E1C1D' };
 
 // A second copy would process the same inbox twice.
 const isPrimaryInstance = app.requestSingleInstanceLock();
@@ -35,9 +39,13 @@ let team;
 // imports files and writes the shared files. See team.js.
 let actingHost = false;
 let lastApplyError = null;
+let latestRelease = null; // from the last update check; updates are only downloaded from it
+let installing = null;
 
 // Only this computer's settings are kept in the app's profile; see datafolder.js.
 const localSettingsPath = () => path.join(app.getPath('userData'), 'settings.json');
+// Downloaded installers. Cleared each time the app starts.
+const updatesDir = () => path.join(app.getPath('temp'), 'Duplicate Checker updates');
 // Where earlier versions kept the review queue and activity log.
 const legacyStatePath = () => path.join(app.getPath('userData'), 'review-state.json');
 const defaults = () => defaultSettings(app.getPath('documents'), os.userInfo().username);
@@ -271,7 +279,48 @@ function snapshot() {
     knownColumns: knownColumns(),
     watcher: watcher.status,
     team: teamInfo(),
+    version: app.getVersion(),
   };
+}
+
+// Updates -----------------------------------------------------------------
+
+/** Downloads the release found by the last check, and installs it once the user agrees. */
+async function installUpdate() {
+  const release = latestRelease;
+  if (!release?.newer || !release.installer) throw new Error('Check for updates first.');
+  if (!app.isPackaged) throw new Error('Updates are installed from the installed app, not from a development copy.');
+
+  let lastPercent = -1;
+  const installer = await downloadInstaller(release.installer, updatesDir(), net.fetch, (received, total) => {
+    const percent = Math.floor((received / total) * 100);
+    if (percent !== lastPercent) send('update-progress', { percent: (lastPercent = percent) });
+  });
+
+  const { response } = await dialog.showMessageBox(win, {
+    type: 'question',
+    title: 'Install update?',
+    message: `Install Duplicate Checker ${release.version} now?`,
+    detail: 'Duplicate Checker closes while the update installs. Your decisions are kept.'
+      + (actingHost ? '\n\nThis computer is the host, so new files in the inbox and decisions others send wait until the app is open again.' : ''),
+    buttons: ['Install now', 'Later'],
+    defaultId: 0,
+    cancelId: 1,
+    noLink: true,
+  });
+  if (response !== 0) return { installing: false };
+
+  await exclusive(() => {}); // lets an import or save that is under way finish
+  // --updated: the installer skips the pages asking where to install, waits
+  // for this app to close, and keeps the shortcuts as they are.
+  await new Promise((resolve, reject) => {
+    const child = spawn(installer, ['--updated'], { detached: true, stdio: 'ignore' });
+    child.once('spawn', resolve);
+    child.once('error', (err) => reject(new Error(`The installer couldn't be started: ${err.message}`)));
+    child.unref();
+  });
+  app.quit();
+  return { installing: true };
 }
 
 // Data folder -------------------------------------------------------------
@@ -364,7 +413,7 @@ function registerIpc() {
 
   handle('settings:save', async (input) => {
     const { settings: next, errors } = validateSettings(
-      { ...input, personId: settings.personId, hostSince: settings.hostSince },
+      { ...input, personId: settings.personId, hostSince: settings.hostSince, theme: settings.theme },
       defaults(),
     );
     if (Object.keys(errors).length) return { errors };
@@ -510,6 +559,29 @@ function registerIpc() {
     const error = await shell.openPath(where);
     if (error) throw new Error(error);
   });
+
+  // Applies right away, unlike the Settings form; see styles.css for the themes.
+  handle('theme:set', (theme) => {
+    if (!THEMES.includes(theme)) throw new Error('Unknown theme.');
+    settings.theme = theme;
+    nativeTheme.themeSource = theme;
+    saveSettings(localSettingsPath(), settings, { localOnly: true });
+  });
+
+  handle('update:check', async () => {
+    latestRelease = await checkForUpdate(app.getVersion(), net.fetch);
+    const { version, newer, publishedAt, installer } = latestRelease;
+    return { version, newer, publishedAt, hasInstaller: Boolean(installer) };
+  });
+
+  handle('update:install', () => {
+    installing ??= installUpdate().finally(() => {
+      installing = null;
+    });
+    return installing;
+  });
+
+  handle('update:page', () => shell.openExternal(latestRelease?.pageUrl ?? RELEASES_PAGE));
 }
 
 function watchTeam() {
@@ -534,6 +606,8 @@ function watchTeam() {
   }));
 }
 
+const windowBackground = () => WINDOW_BACKGROUND[nativeTheme.shouldUseDarkColors ? 'dark' : 'light'];
+
 function createWindow() {
   win = new BrowserWindow({
     width: 1320,
@@ -541,7 +615,7 @@ function createWindow() {
     minWidth: 980,
     minHeight: 640,
     title: 'Duplicate Checker',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: windowBackground(),
     icon: APP_ICON,
     show: false,
     webPreferences: {
@@ -575,6 +649,14 @@ app.whenReady().then(async () => {
   settings = loaded.settings;
   settings.personId ??= crypto.randomUUID();
   if (settings.isHost && !settings.hostSince) settings.hostSince = new Date().toISOString();
+  // The page follows this through prefers-color-scheme, and so does the title bar.
+  nativeTheme.themeSource = settings.theme;
+  nativeTheme.on('updated', () => win?.setBackgroundColor(windowBackground()));
+  try {
+    fs.rmSync(updatesDir(), { recursive: true, force: true });
+  } catch {
+    // The installer that just ran may still be closing; it is removed next time.
+  }
   state = { queue: [], log: [], resolved: [], applyError: null };
   books = openBooks(settings.dataDir);
   watcher = new InboxWatcher(processInboxFile);

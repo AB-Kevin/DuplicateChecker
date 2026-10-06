@@ -30,6 +30,8 @@ Files already in the inbox when the app starts are picked up then, so nothing is
 | Columns that must always match | Every column checked here has to match for a row to be flagged. |
 | Columns where some must match | At least *N* of the columns checked here also have to match. A column can be in only one of the two lists. Columns from files you've dropped in are listed automatically; you can also read them from a spreadsheet or type them. The **Current rule** box spells out the combined rule. |
 | Keep database entries for *N* days | Entries older than this are removed from Database.xlsx at the next import or save, and new files are no longer compared against them. `0` keeps entries indefinitely. |
+| Appearance | **Match Windows** (the default), **Light** or **Dark**. Changes right away, on this computer only. |
+| Check for updates | Asks GitHub for the latest release. If it is newer, **Download and install** downloads the installer, checks it against the release, and asks before closing the app to run it. The installer keeps the install folder and shortcuts, and can open the app again when it finishes. |
 | Clear all data | Empties Database.xlsx and Duplicates.xlsx, removes every entry waiting for review, and clears the activity log so the same files can be imported again. You must type `Clear ALL DATA` (capitals matter) to confirm. Both spreadsheets are copied to `Backups/` first. Settings, the inbox and `Processed/` are not changed. |
 
 ### How values are compared
@@ -57,7 +59,7 @@ Everything the app keeps is in one folder, chosen under **Settings → Data fold
 | `Backups/` | Daily copies of the two spreadsheets |
 | `Inbox/` | The default inbox |
 
-Each computer only remembers where the data folder and the inbox are, your name, and whether it is the host.
+Each computer only remembers where the data folder and the inbox are, your name, whether it is the host, and its appearance.
 
 **Moving to OneDrive or handing it off.** Choose a folder in OneDrive as the data folder and save. If the new folder is empty, the app offers to copy everything there; the old folder is left as it was, so you can delete it once you've checked the new one. To hand the work to someone else, share the OneDrive folder with them. They install the app and choose the same folder as their data folder. The app recognizes it and switches to it, including its matching settings, its database and the entries waiting for review.
 
@@ -85,7 +87,7 @@ To hand the work to someone else for good, share the folder with them. They make
 - **Correlated columns:** if two compare columns usually move together (for example a procedure code and its standard charge), "3 of 4" behaves more like "2 of 3". Choose columns that each say something different about the entry.
 - Only the first worksheet of each file is read, and its first non-blank row is treated as the header row.
 - Columns with neither a header nor any data are ignored, such as columns that are formatted but empty past the last real column. A column with data but no header is kept and named by its letter, for example `Column V`.
-- Only the folder locations, your name and whether this computer is the host are stored on each computer (in `%APPDATA%\Duplicate Checker`). Everything else is in the data folder.
+- Only the folder locations, your name, whether this computer is the host and its appearance are stored on each computer (in `%APPDATA%\Duplicate Checker`). Everything else is in the data folder.
 - The host's app has to be running to import files from the inbox. Only one copy of the app can run on each computer.
 
 ## Development
@@ -114,6 +116,7 @@ The release appears on the repository's **Releases** page a few minutes later as
 - This clone pushes tags with commits because `push.followTags` is set in its `.git/config`. That setting isn't part of the repository, so in any new clone run `git config push.followTags true` once, or push with `git push --follow-tags`.
 - The installer isn't code-signed, so Windows SmartScreen shows "Windows protected your PC" the first time it runs. Choose **More info**, then **Run anyway**.
 - To build the installer locally instead, run `npm run dist`. It is written to `dist/`.
+- **Check for updates** in the app reads the repository's latest release (`src/main/updates.js`), so drafts and pre-releases are never offered. It only installs an asset named `DuplicateChecker-Setup-X.Y.Z.exe` for that release's version, and checks it against the SHA-256 digest GitHub lists for it. Keep the tag as `vX.Y.Z` and leave `artifactName` in package.json as it is, or the app won't find the installer. The download and install steps only run in the installed app, not under `npm start`.
 
 ### Dependencies
 
@@ -138,6 +141,7 @@ npm install https://cdn.sheetjs.com/xlsx-X.Y.Z/xlsx-X.Y.Z.tgz
 | `src/main/datafolder.js` | Data folder layout: copying, summarizing, moving data from earlier versions |
 | `src/main/team.js` | Reviewing together: people files, choosing the host, saving sent decisions |
 | `src/main/jsonfile.js` | Reading and writing JSON files safely |
+| `src/main/updates.js` | Checking GitHub for a newer release and downloading its installer |
 | `src/shared/matcher.js` | Value normalization and the match index (also used by the review screen) |
 | `src/preload/preload.js` | The API exposed to the page |
 | `src/renderer/` | The interface |

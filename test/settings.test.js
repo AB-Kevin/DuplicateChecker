@@ -26,6 +26,12 @@ test('the count is checked against the some-must-match list only', () => {
   assert.equal(noneNeeded.settings.threshold, defaults.threshold);
 });
 
+test('the theme follows Windows unless light or dark is chosen', () => {
+  assert.equal(validateSettings({}, defaults).settings.theme, 'system');
+  assert.equal(validateSettings({ theme: 'dark' }, defaults).settings.theme, 'dark');
+  assert.equal(validateSettings({ theme: 'purple' }, defaults).settings.theme, 'system');
+});
+
 test('settings saved before must-match columns existed still load', () => {
   const { settings, errors } = validateSettings({ inboxDir: 'C:/In', dataDir: 'C:/Data', fields: ['A', 'B', 'C'], threshold: 2 }, defaults);
   assert.deepEqual(errors, {});

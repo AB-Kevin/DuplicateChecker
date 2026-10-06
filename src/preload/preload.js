@@ -22,6 +22,11 @@ contextBridge.exposeInMainWorld('api', {
   chooseFilesForInbox: () => call('inbox:choose'),
   addFilesToInbox: (files) => call('inbox:add', Array.from(files, (file) => webUtils.getPathForFile(file))),
   open: (target) => call('open', target),
+  setTheme: (theme) => call('theme:set', theme),
+  checkForUpdate: () => call('update:check'),
+  installUpdate: () => call('update:install'),
+  openReleasePage: () => call('update:page'),
   onStateChanged: (callback) => ipcRenderer.on('state-changed', () => callback()),
   onNotice: (callback) => ipcRenderer.on('notice', (_event, notice) => callback(notice)),
+  onUpdateProgress: (callback) => ipcRenderer.on('update-progress', (_event, progress) => callback(progress)),
 });

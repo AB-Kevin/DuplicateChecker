@@ -218,6 +218,35 @@
       </form>
 
       <div class="form-section">
+        <h2 class="section-title">Appearance</h2>
+        <div class="field">
+          <div class="actions" role="group" aria-label="Theme">
+            <button type="button" class="btn btn-secondary btn-sm" data-theme="system">Match Windows</button>
+            <button type="button" class="btn btn-secondary btn-sm" data-theme="light">Light</button>
+            <button type="button" class="btn btn-secondary btn-sm" data-theme="dark">Dark</button>
+          </div>
+          <p class="hint">Changes right away, on this computer only.</p>
+        </div>
+      </div>
+
+      <div class="form-section">
+        <h2 class="section-title">Updates</h2>
+        <p class="intro">This is Duplicate Checker <span id="app-version"></span>.</p>
+        <div class="input-row">
+          <button type="button" class="btn btn-secondary" id="check-update">Check for updates</button>
+          <span class="muted small" id="update-status" role="status"></span>
+        </div>
+        <div class="update-panel" id="update-panel" hidden>
+          <p><strong id="update-title"></strong></p>
+          <p class="small" id="update-detail"></p>
+          <div class="actions">
+            <button type="button" class="btn btn-secondary" id="install-update">Download and install</button>
+            <button type="button" class="link" id="release-page">See what&rsquo;s new</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="form-section">
         <h2 class="section-title">Clear all data</h2>
         <p class="intro">Start over with an empty database. This empties Database.xlsx and Duplicates.xlsx, removes every entry waiting for review, and clears the activity log so the same files can be imported again. Settings, the inbox and the Processed folder are not changed.</p>
         <button type="button" class="btn btn-secondary" id="open-clear">Clear all data&hellip;</button>

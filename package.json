@@ -1,0 +1,38 @@
+{
+  "name": "duplicate-checker",
+  "productName": "Duplicate Checker",
+  "version": "0.0.1",
+  "description": "Watches an inbox folder for spreadsheets, flags likely duplicate rows for review, and maintains a rolling database and a duplicates log.",
+  "main": "src/main/main.js",
+  "private": true,
+  "scripts": {
+    "postinstall": "node node_modules/electron/install.js",
+    "start": "electron .",
+    "test": "node --test \"test/*.test.js\"",
+    "dist": "electron-builder --win"
+  },
+  "dependencies": {
+    "@fontsource/poppins": "^5.3.0",
+    "chokidar": "^4.0.3",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
+  },
+  "devDependencies": {
+    "electron": "^44.5.1",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "org.anabaptistbrotherhood.duplicatechecker",
+    "productName": "Duplicate Checker",
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  }
+}

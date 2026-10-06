@@ -1,0 +1,11 @@
+# Normalize line endings for text files; leave binary files untouched.
+* text=auto
+
+*.xlsx binary
+*.xls binary
+*.xlsm binary
+*.ods binary
+*.jpg binary
+*.png binary
+*.ico binary
+*.woff2 binary

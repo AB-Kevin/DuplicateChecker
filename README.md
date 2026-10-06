@@ -24,7 +24,9 @@ Files already in the inbox when the app starts are picked up then, so nothing is
 | Setting | What it does |
 | --- | --- |
 | Data folder | Holds everything the app keeps; see [The data folder](#the-data-folder). |
-| Inbox folder | The folder the app watches. By default the `Inbox` folder inside the data folder, in which case it moves when the data folder does. |
+| Inbox folder | The folder the host watches. By default the `Inbox` folder inside the data folder, in which case it moves when the data folder does. |
+| Your name | Shown to others using the same data folder. |
+| This computer is the host | See [Reviewing together](#reviewing-together). |
 | Columns that must always match | Every column checked here has to match for a row to be flagged. |
 | Columns where some must match | At least *N* of the columns checked here also have to match. A column can be in only one of the two lists. Columns from files you've dropped in are listed automatically; you can also read them from a spreadsheet or type them. The **Current rule** box spells out the combined rule. |
 | Keep database entries for *N* days | Entries older than this are removed from Database.xlsx at the next import or save, and new files are no longer compared against them. `0` keeps entries indefinitely. |
@@ -48,17 +50,31 @@ Everything the app keeps is in one folder, chosen under **Settings → Data fold
 | --- | --- |
 | `Database.xlsx` | Every entry that isn't a duplicate, within the retention period |
 | `Duplicates.xlsx` | Entries confirmed as duplicates |
-| `App data/review-state.json` | Entries waiting for review (including decisions not yet saved) and the activity log |
+| `App data/review-state.json` | Entries waiting for review, the activity log, and recently saved decisions |
+| `App data/people/` | One file per person: who they are, what they have open, and their decisions |
 | `App data/settings.json` | The matching rules and retention period |
 | `Processed/` | Imported files |
 | `Backups/` | Daily copies of the two spreadsheets |
 | `Inbox/` | The default inbox |
 
-Each computer only remembers where the data folder and the inbox are.
+Each computer only remembers where the data folder and the inbox are, your name, and whether it is the host.
 
 **Moving to OneDrive or handing it off.** Choose a folder in OneDrive as the data folder and save. If the new folder is empty, the app offers to copy everything there; the old folder is left as it was, so you can delete it once you've checked the new one. To hand the work to someone else, share the OneDrive folder with them. They install the app and choose the same folder as their data folder. The app recognizes it and switches to it, including its matching settings, its database and the entries waiting for review.
 
-**One person at a time.** The app expects only one copy to be using a data folder at once. If two people have it open on the same OneDrive folder, both may import the same inbox file, and OneDrive may keep two conflicting copies of the review queue. When handing off, close the app on your computer first and let OneDrive finish syncing.
+## Reviewing together
+
+Several people can review at the same time from one shared data folder.
+
+- **One computer is the host.** It imports new files from the inbox and saves everyone's decisions to Database.xlsx and Duplicates.xlsx. Turn this on under **Settings → Sharing → This computer is the host**. A new install starts as host; someone who switches to a folder another computer is already hosting joins as a reviewer.
+- **Everyone else reviews.** Their decisions go to the host with **Send decisions**, and the host saves them within a few seconds of OneDrive syncing. Reviewers see the matching settings but only the host can change them, or clear all data.
+- **You can see each other.** Each entry shows who else has it open and any decision someone has made but not sent. The Activity screen lists everyone using the folder.
+- **First sent wins.** Once someone sends a decision for an entry, it is settled for everyone. If two people send different decisions before seeing each other's, the first one sent is used, and the other person is told.
+- **The host's app has to be open** for decisions to be saved. Until it is, sent decisions wait safely, and a banner says so.
+- **Two hosts.** If two computers are set as host, the one that has been host longer keeps the job and the other waits, with a banner on both. When the acting host closes its app, the waiting one takes over.
+
+How it works: every file has one writer, so OneDrive never has to merge two people's changes. Each person's copy of the app writes only its own file in `App data/people/`; the host writes everything else. Changes appear on the other computers as fast as OneDrive syncs them, usually within seconds. "First sent" goes by each computer's clock, so keep Windows' automatic time setting on.
+
+To hand the work to someone else for good, share the folder with them. They make their computer the host, or it becomes host on its own once yours is closed.
 
 ## Good to know
 
@@ -69,8 +85,8 @@ Each computer only remembers where the data folder and the inbox are.
 - **Correlated columns:** if two compare columns usually move together (for example a procedure code and its standard charge), "3 of 4" behaves more like "2 of 3". Choose columns that each say something different about the entry.
 - Only the first worksheet of each file is read, and its first non-blank row is treated as the header row.
 - Columns with neither a header nor any data are ignored, such as columns that are formatted but empty past the last real column. A column with data but no header is kept and named by its letter, for example `Column V`.
-- Only the data folder and inbox locations are stored on each computer (in `%APPDATA%\Duplicate Checker`). Everything else is in the data folder.
-- The app has to be running to watch the inbox. Only one copy can run at a time.
+- Only the folder locations, your name and whether this computer is the host are stored on each computer (in `%APPDATA%\Duplicate Checker`). Everything else is in the data folder.
+- The host's app has to be running to import files from the inbox. Only one copy of the app can run on each computer.
 
 ## Development
 
@@ -120,6 +136,7 @@ npm install https://cdn.sheetjs.com/xlsx-X.Y.Z/xlsx-X.Y.Z.tgz
 | `src/main/inbox.js` | Inbox folder watcher |
 | `src/main/settings.js` | Settings defaults, validation, loading and saving |
 | `src/main/datafolder.js` | Data folder layout: copying, summarizing, moving data from earlier versions |
+| `src/main/team.js` | Reviewing together: people files, choosing the host, saving sent decisions |
 | `src/main/jsonfile.js` | Reading and writing JSON files safely |
 | `src/shared/matcher.js` | Value normalization and the match index (also used by the review screen) |
 | `src/preload/preload.js` | The API exposed to the page |

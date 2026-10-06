@@ -32,7 +32,10 @@ test('settings from earlier versions move their matching rules into the data fol
   assert.equal(first.settings.retentionDays, 90);
 
   saveSettings(localPath, first.settings);
-  assert.deepEqual(readJson(localPath), { dataDir, inboxDir: path.join(root, 'Inbox') });
+  const local = readJson(localPath);
+  assert.equal(local.dataDir, dataDir);
+  assert.equal(local.inboxDir, path.join(root, 'Inbox'));
+  for (const key of ['requiredFields', 'fields', 'threshold', 'retentionDays']) assert.equal(key in local, false, key);
   assert.deepEqual(readJson(sharedSettingsPath(dataDir)), {
     requiredFields: ['PatientName'], fields: ['CPT Code', 'Charge Amount'], threshold: 1, retentionDays: 90,
   });

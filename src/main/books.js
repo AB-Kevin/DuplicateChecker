@@ -19,6 +19,7 @@ class FileLockedError extends Error {
   constructor(filePath) {
     super(`${path.basename(filePath)} is open in another program (usually Excel). Close it and try again.`);
     this.name = 'FileLockedError';
+    this.fileName = path.basename(filePath);
   }
 }
 

@@ -25,6 +25,7 @@
     </nav>
     <button class="watch-status" id="watch-status" data-view="activity"></button>
   </header>
+  <div class="banner" id="banner" role="status" hidden></div>
 
   <main>
     <!-- Review -->
@@ -81,6 +82,19 @@
         </div>
         <p class="muted small drop-hint">You can also drop spreadsheets anywhere in this window to add them to the inbox. Everything the app keeps, including processed files, is in the <button class="link inline" data-open="data">data folder</button>.</p>
 
+        <h2 class="section-title">People using this data folder</h2>
+        <table class="log">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Role</th>
+              <th>Computer</th>
+              <th>Has open</th>
+            </tr>
+          </thead>
+          <tbody id="people-body"></tbody>
+        </table>
+
         <h2 class="section-title">Recent imports</h2>
         <table class="log">
           <thead>
@@ -123,11 +137,31 @@
               <input id="inboxDir" name="inboxDir" type="text" spellcheck="false">
               <button type="button" class="btn btn-secondary btn-sm" data-browse="inboxDir">Browse&hellip;</button>
             </div>
-            <p class="hint">The app watches this folder. Drop each week's spreadsheet here. If it is the data folder's Inbox folder, it moves with the data folder.</p>
+            <p class="hint">Drop each week's spreadsheet here. The host imports it; see Sharing below. If it is the data folder's Inbox folder, it moves with the data folder.</p>
             <p class="field-error" data-error-for="inboxDir"></p>
           </div>
         </div>
 
+        <div class="form-section">
+          <h2 class="section-title">Sharing</h2>
+          <p class="intro" id="sharing-status"></p>
+          <div class="field">
+            <label for="personName">Your name</label>
+            <input id="personName" name="personName" type="text" spellcheck="false" maxlength="60" class="name-input">
+            <p class="hint">Shown to others using the same data folder.</p>
+            <p class="field-error" data-error-for="personName"></p>
+          </div>
+          <div class="field">
+            <label class="check">
+              <input type="checkbox" id="isHost" name="isHost">
+              <span>This computer is the host</span>
+            </label>
+            <p class="hint">The host imports new files from the inbox and saves everyone's decisions to Database.xlsx and Duplicates.xlsx. Everyone else reviews and sends their decisions to it. Only one computer using the data folder should be the host, and its app needs to be open for decisions to be saved.</p>
+          </div>
+        </div>
+
+        <fieldset class="shared-settings" id="shared-settings">
+        <p class="shared-note" id="shared-note" hidden></p>
         <div class="form-section">
           <h2 class="section-title">Duplicate matching</h2>
           <p class="intro">An entry is flagged for review when <strong>every</strong> column in the first list matches an existing entry, <strong>and</strong> enough of the columns in the second list match as well. Either list can be left empty. These settings are stored in the data folder, so anyone using it compares entries the same way.</p>
@@ -174,6 +208,7 @@
             <p class="field-error" data-error-for="retentionDays"></p>
           </div>
         </div>
+        </fieldset>
 
         <div class="form-actions">
           <button type="submit" class="btn btn-primary">Save settings</button>
@@ -186,6 +221,7 @@
         <h2 class="section-title">Clear all data</h2>
         <p class="intro">Start over with an empty database. This empties Database.xlsx and Duplicates.xlsx, removes every entry waiting for review, and clears the activity log so the same files can be imported again. Settings, the inbox and the Processed folder are not changed.</p>
         <button type="button" class="btn btn-secondary" id="open-clear">Clear all data&hellip;</button>
+        <p class="hint" id="clear-host-only" hidden>Only the host computer can clear all data.</p>
       </div>
       </div>
     </section>

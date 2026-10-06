@@ -27,6 +27,7 @@
     "productName": "Duplicate Checker",
     "files": [
       "src/**/*",
+      "build/icon.png",
       "package.json"
     ],
     "publish": null,

@@ -82,7 +82,10 @@
     renderHeader();
     if (ui.view === 'review') renderReview();
     if (ui.view === 'activity') renderActivity();
-    if (ui.view === 'settings') renderColumns();
+    if (ui.view === 'settings') {
+      renderSharing();
+      renderColumns();
+    }
   }
 
   function showView(view) {
@@ -90,27 +93,63 @@
     for (const name of ['review', 'activity', 'settings']) $(`#view-${name}`).hidden = name !== view;
     $$('.tab').forEach((tab) => tab.classList.toggle('active', tab.dataset.view === view));
     render();
+    reportViewing();
   }
 
   // Header ---------------------------------------------------------------
 
-  function renderHeader() {
-    const { watcher, settings, queue } = ui.data;
-    const status = $('#watch-status');
-    status.className = `watch-status ${watcher.state}`;
-    const text = {
-      watching: `Watching ${basename(settings.inboxDir)}`,
-      error: 'Inbox unavailable',
-      stopped: 'Not watching the inbox',
-    }[watcher.state];
-    status.innerHTML = `<span>${esc(text)}</span>`;
-    status.title = watcher.message || settings.inboxDir;
+  const isHost = () => ui.data.team.role === 'host';
+  const hostName = () => ui.data.team.host?.name;
 
-    const open = queue.filter((item) => !item.decision).length;
+  function renderHeader() {
+    const { watcher, settings, queue, team } = ui.data;
+    let stateClass;
+    let text;
+    if (team.role === 'host') {
+      stateClass = watcher.state;
+      text = {
+        watching: `Host · watching ${basename(settings.inboxDir)}`,
+        error: 'Host · inbox unavailable',
+        stopped: 'Host · not watching the inbox',
+      }[watcher.state];
+    } else if (team.role === 'waiting-host') {
+      stateClass = 'error';
+      text = 'Host on hold';
+    } else {
+      stateClass = team.host ? 'watching' : 'stopped';
+      text = team.host ? `Reviewing · ${team.host.name} is host` : 'Reviewing · no host running';
+    }
+    const others = team.people.filter((p) => !p.isMe).map((p) => p.name);
+    if (others.length) text += ` · ${count(others.length, 'other person', 'other people')} here`;
+    const status = $('#watch-status');
+    status.className = `watch-status ${stateClass}`;
+    status.innerHTML = `<span>${esc(text)}</span>`;
+    status.title = [watcher.message || settings.inboxDir, others.length ? `Also here: ${listText(others)}` : '']
+      .filter(Boolean).join('\n');
+
+    const open = queue.filter(isOpenForMe).length;
     const badge = $('#review-count');
     badge.hidden = !open;
     badge.textContent = open.toLocaleString();
     $('#settings-dirty-dot').hidden = !ui.draftDirty;
+    renderBanner();
+  }
+
+  /** Problems with sharing the data folder that everyone should see. */
+  function renderBanner() {
+    const { team, queue } = ui.data;
+    const lines = [];
+    if (team.role === 'waiting-host') {
+      lines.push(`This computer is set as the host, but ${team.host?.name ?? 'another computer'}'s computer already is. Only one host works at a time, so this computer is reviewing until that app closes. To stop being the host, turn it off under Settings, Sharing.`);
+    } else if (team.role === 'host' && team.otherHosts.length) {
+      lines.push(`${listText(team.otherHosts)} ${team.otherHosts.length === 1 ? 'is' : 'are'} also set as the host. This computer is acting as host; the others are waiting.`);
+    }
+    if (team.applyError) lines.push(team.applyError.message);
+    if (team.role === 'reviewer' && !team.host && queue.length) {
+      lines.push('The host computer\'s app isn\'t open. You can keep reviewing; decisions you send are kept and will be saved when the host\'s app is open.');
+    }
+    $('#banner').hidden = !lines.length;
+    $('#banner').innerHTML = lines.map((line) => `<p>${esc(line)}</p>`).join('');
   }
 
   // Review ---------------------------------------------------------------
@@ -147,13 +186,30 @@
     return values.join(' · ') || 'Compared columns are blank';
   }
 
+  // Each entry, as this person sees it, is one of: open (nobody has settled
+  // it and this person hasn't decided), a draft (decided, not sent yet), sent
+  // (waiting for the host to save it), or taken (someone else sent first).
+  const isOpenForMe = (item) => !item.decision && !item.lockedBy;
+  const isDraft = (item) => Boolean(item.decision) && !item.sent && !item.lockedBy;
+  const isSettled = (item) => item.sent || Boolean(item.lockedBy);
+  const decisionText = (decision) => (decision === 'duplicate' ? 'a duplicate' : 'not a duplicate');
+
   function selectedItem() {
     return ui.data.queue.find((item) => item.id === ui.selectedId) ?? null;
   }
 
   function ensureSelection() {
     const { queue } = ui.data;
-    if (!selectedItem()) ui.selectedId = (queue.find((item) => !item.decision) ?? queue[0])?.id ?? null;
+    if (!selectedItem()) ui.selectedId = (queue.find(isOpenForMe) ?? queue[0])?.id ?? null;
+  }
+
+  /** Tells the others which entry this person has open. */
+  let reportedViewing;
+  function reportViewing() {
+    const viewing = ui.view === 'review' ? ui.selectedId : null;
+    if (viewing === reportedViewing) return;
+    reportedViewing = viewing;
+    api.setViewing(viewing).catch(() => {});
   }
 
   function renderReview() {
@@ -176,26 +232,40 @@
       return;
     }
 
-    const open = queue.filter((item) => !item.decision);
-    const dupes = queue.filter((item) => item.decision === 'duplicate').length;
-    const uniques = queue.filter((item) => item.decision === 'unique').length;
-    $('#queue-summary').textContent = open.length
-      ? `${count(open.length, 'entry', 'entries')} to review${dupes + uniques ? ` · ${(dupes + uniques).toLocaleString()} decided` : ''}`
-      : `All ${count(queue.length, 'entry', 'entries')} decided. Save to finish.`;
+    const open = queue.filter(isOpenForMe);
+    const drafts = queue.filter(isDraft);
+    const settled = queue.filter(isSettled).length;
+    const summary = [];
+    if (open.length) summary.push(`${count(open.length, 'entry', 'entries')} to review`);
+    if (drafts.length) summary.push(`${drafts.length.toLocaleString()} decided`);
+    if (settled) summary.push(`${settled.toLocaleString()} waiting for the host`);
+    $('#queue-summary').textContent = open.length || drafts.length
+      ? summary.join(' · ')
+      : `Everything here is decided${settled ? ' and waiting for the host to save it' : ''}.`;
     $('#mark-rest').disabled = !open.length;
 
     renderQueueList();
     renderDetail(selectedItem());
+    reportViewing();
 
-    const decided = dupes + uniques;
-    $('#apply').disabled = !decided;
-    $('#apply').textContent = decided ? `Save ${count(decided, 'decision')}` : 'Save decisions';
+    const dupes = drafts.filter((item) => item.decision === 'duplicate').length;
+    const uniques = drafts.length - dupes;
+    const host = isHost();
+    const apply = $('#apply');
+    apply.disabled = !drafts.length;
+    apply.textContent = drafts.length
+      ? `${host ? 'Save' : 'Send'} ${count(drafts.length, 'decision')}`
+      : host ? 'Save decisions' : 'Send decisions';
+    apply.title = host ? '' : 'Sends your decisions to the host computer, which saves them to the spreadsheets.';
     const parts = [];
     if (dupes) parts.push(`${count(dupes, 'duplicate')} to Duplicates.xlsx`);
     if (uniques) parts.push(`${count(uniques, 'entry', 'entries')} to Database.xlsx`);
-    $('#apply-summary').innerHTML = decided
-      ? `Ready to save: ${esc(listText(parts))}.${open.length ? ` <span class="muted">${esc(count(open.length, 'entry', 'entries'))} still to review.</span>` : ''}`
-      : '<span class="muted">Mark each entry as a duplicate or not, then save your decisions.</span>';
+    const waiting = !host && ui.data.team.waitingToSave
+      ? ` <span class="muted">${esc(count(ui.data.team.waitingToSave, 'decision'))} sent, waiting for ${esc(hostName() ? `${hostName()}'s computer` : 'the host')} to save.</span>`
+      : '';
+    $('#apply-summary').innerHTML = drafts.length
+      ? `Ready to ${host ? 'save' : 'send'}: ${esc(listText(parts))}.${open.length ? ` <span class="muted">${esc(count(open.length, 'entry', 'entries'))} still to review.</span>` : ''}${waiting}`
+      : `<span class="muted">Mark each entry as a duplicate or not, then ${host ? 'save' : 'send'} your decisions.</span>${waiting}`;
   }
 
   function renderQueueList() {
@@ -205,10 +275,22 @@
       if (groups.at(-1)?.key !== key) groups.push({ key, fileName: item.fileName, importedAt: item.importedAt, items: [] });
       groups.at(-1).items.push(item);
     }
-    const tag = (item) => ({
-      duplicate: '<span class="tag tag-outline">Duplicate</span>',
-      unique: '<span class="tag tag-mint">Not a duplicate</span>',
-    }[item.decision] ?? '<span></span>');
+    const tag = (item) => {
+      if (item.lockedBy) {
+        const theirs = item.others.find((o) => o.name === item.lockedBy && o.sent);
+        return `<span class="tag tag-gray">${esc(item.lockedBy)}: ${theirs?.decision === 'duplicate' ? 'Duplicate' : 'Not a duplicate'}</span>`;
+      }
+      const label = { duplicate: 'Duplicate', unique: 'Not a duplicate' }[item.decision];
+      if (!label) return '<span></span>';
+      const tone = item.sent ? 'tag-gray' : item.decision === 'duplicate' ? 'tag-outline' : 'tag-mint';
+      return `<span class="tag ${tone}">${item.sent ? 'Sent · ' : ''}${label}</span>`;
+    };
+    // Others' unsent decisions and who has the entry open.
+    const people = (item) => {
+      const notes = item.viewers.map((name) => `${name} has this open`);
+      for (const o of item.others) if (!o.sent) notes.push(`${o.name}: ${o.decision === 'duplicate' ? 'duplicate' : 'not a duplicate'}, not sent`);
+      return notes.length ? `<span class="qi-people">${esc(notes.join(' · '))}</span>` : '';
+    };
 
     $('#queue-list').innerHTML = groups.map((group) => `
       <div class="queue-group">
@@ -219,11 +301,12 @@
         ${group.items.map((item) => {
           const best = item.matches[0];
           return `
-          <button class="queue-item${item.id === ui.selectedId ? ' selected' : ''}${item.decision ? ' decided' : ''}" data-id="${esc(item.id)}">
+          <button class="queue-item${item.id === ui.selectedId ? ' selected' : ''}${isOpenForMe(item) ? '' : ' decided'}" data-id="${esc(item.id)}">
             <span class="qi-row">Row ${esc(item.rowNumber)}</span>
             ${tag(item)}
             <span class="qi-summary">${esc(itemSummary(item))}</span>
             <span class="qi-meta">${esc(KIND_LABELS[best.kind])} · ${best.fields.length} of ${itemColumns(item).length} columns match</span>
+            ${people(item)}
           </button>`;
         }).join('')}
       </div>`).join('');
@@ -292,16 +375,31 @@
       return `<tr><th scope="row">${esc(label)}${mark}</th>${cells.join('')}</tr>`;
     };
 
+    // What others are doing with this entry, and why the buttons may be locked.
+    const notes = [];
+    if (item.lockedBy) {
+      const theirs = item.others.find((o) => o.name === item.lockedBy && o.sent);
+      notes.push(`${item.lockedBy} has already sent this as ${decisionText(theirs?.decision)}, so it's settled. It leaves the list when the host saves it.`);
+    } else if (item.sent) {
+      notes.push(`You sent this as ${decisionText(item.decision)}. It leaves the list when ${isHost() ? 'it is saved' : 'the host saves it'}.`);
+    }
+    for (const o of item.others) {
+      if (!o.sent) notes.push(`${o.name} has marked this as ${decisionText(o.decision)} but hasn't sent it yet.`);
+    }
+    if (item.viewers.length) notes.push(`${listText(item.viewers)} also ${item.viewers.length === 1 ? 'has' : 'have'} this entry open.`);
+    const locked = isSettled(item) ? ' disabled' : '';
+
     detail.innerHTML = `
       <div class="detail-head">
         <div>
           <p class="eyebrow">${esc(item.fileName)} · Row ${esc(item.rowNumber)}</p>
           <h1>Possible duplicate</h1>
           <p class="lede">${esc(lede)}</p>
+          ${notes.length ? `<div class="people-note">${notes.map((n) => `<p>${esc(n)}</p>`).join('')}</div>` : ''}
         </div>
         <div class="decision">
-          <button class="btn btn-secondary" data-decide="duplicate" aria-pressed="${item.decision === 'duplicate'}">Duplicate <kbd>D</kbd></button>
-          <button class="btn btn-secondary" data-decide="unique" aria-pressed="${item.decision === 'unique'}">Not a duplicate <kbd>N</kbd></button>
+          <button class="btn btn-secondary" data-decide="duplicate" aria-pressed="${item.decision === 'duplicate'}"${locked}>Duplicate <kbd>D</kbd></button>
+          <button class="btn btn-secondary" data-decide="unique" aria-pressed="${item.decision === 'unique'}"${locked}>Not a duplicate <kbd>N</kbd></button>
         </div>
       </div>
       <div class="compare-wrap">
@@ -329,13 +427,17 @@
   function selectNextOpen(fromId) {
     const { queue } = ui.data;
     const i = queue.findIndex((item) => item.id === fromId);
-    const next = queue.slice(i + 1).find((item) => !item.decision) ?? queue.slice(0, i).find((item) => !item.decision);
+    const next = queue.slice(i + 1).find(isOpenForMe) ?? queue.slice(0, i).find(isOpenForMe);
     if (next) ui.selectedId = next.id;
   }
 
   async function decide(decision, { toggle = false } = {}) {
     const item = selectedItem();
     if (!item) return;
+    if (isSettled(item)) {
+      toast(item.lockedBy ? `${item.lockedBy} has already decided this entry.` : 'You have already sent your decision for this entry.', 'info');
+      return;
+    }
     const value = toggle && item.decision === decision ? null : decision;
     item.decision = value;
     if (value) selectNextOpen(item.id);
@@ -354,11 +456,11 @@
   }
 
   async function markRestUnique() {
-    const rest = ui.data.queue.filter((item) => !item.decision);
+    const rest = ui.data.queue.filter(isOpenForMe);
     if (!rest.length) return;
     const ok = window.confirm(
       `Mark ${count(rest.length, 'remaining entry', 'remaining entries')} as not duplicates?\n\n` +
-      'They will be added to the database when you save your decisions.',
+      `They will be added to the database when you ${isHost() ? 'save' : 'send'} your decisions.`,
     );
     if (!ok) return;
     for (const item of rest) item.decision = 'unique';
@@ -367,17 +469,22 @@
   }
 
   async function saveDecisions() {
-    if (!ui.data.queue.some((item) => item.decision)) return;
+    if (!ui.data.queue.some(isDraft)) return;
     $('#apply').disabled = true;
     const result = await attempt(() => api.applyDecisions());
-    if (result) {
+    if (result?.saved) {
       clearErrorToasts();
+      const { duplicates, added, expired } = result.saved;
       const parts = [];
-      if (result.duplicates) parts.push(`${count(result.duplicates, 'entry', 'entries')} added to Duplicates.xlsx`);
-      if (result.added) parts.push(`${count(result.added, 'entry', 'entries')} added to Database.xlsx`);
+      if (duplicates) parts.push(`${count(duplicates, 'entry', 'entries')} added to Duplicates.xlsx`);
+      if (added) parts.push(`${count(added, 'entry', 'entries')} added to Database.xlsx`);
       let message = `Saved: ${listText(parts)}.`;
-      if (result.expired) message += ` ${count(result.expired, 'expired entry', 'expired entries')} removed from the database.`;
+      if (expired) message += ` ${count(expired, 'expired entry', 'expired entries')} removed from the database.`;
       toast(message, 'success');
+    } else if (result?.sent) {
+      toast(result.host
+        ? `Sent ${count(result.sent, 'decision')} to ${result.host.name}'s computer, which saves them to the spreadsheets.`
+        : `Sent ${count(result.sent, 'decision')}. They'll be saved when the host computer's app is open.`, 'success');
     }
     await refresh();
   }
@@ -385,13 +492,27 @@
   // Activity -------------------------------------------------------------
 
   function renderActivity() {
-    const { watcher, settings, database, duplicates, log } = ui.data;
-    $('#inbox-status').textContent = {
-      watching: 'Watching for new files',
-      error: watcher.message || 'The inbox folder is unavailable.',
-      stopped: 'Not watching',
-    }[watcher.state];
+    const { watcher, settings, database, duplicates, log, team } = ui.data;
+    $('#inbox-status').textContent = isHost()
+      ? {
+        watching: 'Watching for new files',
+        error: watcher.message || 'The inbox folder is unavailable.',
+        stopped: 'Not watching',
+      }[watcher.state]
+      : team.host
+        ? `${team.host.name}'s computer imports new files.`
+        : 'The host imports new files. Its app isn\'t open, so files wait here.';
     $('#inbox-path').textContent = settings.inboxDir;
+    $('#rescan').disabled = !isHost();
+    $('#rescan').title = isHost() ? '' : 'Only the host computer imports files from the inbox.';
+
+    $('#people-body').innerHTML = team.people.map((p) => `
+      <tr>
+        <td class="file">${esc(p.name)}${p.isMe ? ' <span class="muted">(you)</span>' : ''}</td>
+        <td>${p.role === 'host' ? '<span class="tag tag-green">Host</span>' : '<span class="tag tag-mint">Reviewing</span>'}</td>
+        <td>${esc(p.computer)}</td>
+        <td class="notes">${esc(p.viewing ?? '')}</td>
+      </tr>`).join('');
 
     const figure = (book) => (book.rows === null ? 'Unreadable' : count(book.rows, 'entry', 'entries'));
     $('#db-count').textContent = figure(database);
@@ -441,11 +562,34 @@
     ui.errors = {};
     form.inboxDir.value = ui.draft.inboxDir;
     form.dataDir.value = ui.draft.dataDir;
+    form.personName.value = ui.draft.personName;
+    form.isHost.checked = ui.draft.isHost;
     form.threshold.value = ui.draft.threshold;
     form.retentionDays.value = ui.draft.retentionDays;
+    renderSharing();
     renderColumns();
     renderErrors();
     markDirty(false);
+  }
+
+  /** Who is using the data folder, and which settings this computer may change. */
+  function renderSharing() {
+    const { team } = ui.data;
+    const role = {
+      host: 'This computer is the host.',
+      'waiting-host': `This computer is set as the host, but ${hostName() ?? 'another computer'}'s computer is acting as host, so this computer is reviewing for now.`,
+      reviewer: team.host ? `${team.host.name}'s computer is the host, and this computer reviews.` : 'No host computer is running right now, and this computer reviews.',
+    }[team.role];
+    const others = team.people.filter((p) => !p.isMe).map((p) => `${p.name} (${p.role === 'host' ? 'host' : 'reviewing'})`);
+    $('#sharing-status').textContent = `${role} ${others.length ? `Also using this data folder: ${listText(others)}.` : 'Nobody else is using this data folder right now.'}`;
+
+    const canEdit = isHost();
+    $('#shared-settings').disabled = !canEdit;
+    $('#shared-note').hidden = canEdit;
+    $('#shared-note').textContent = 'Everyone using this data folder shares the matching and retention settings, and only the host can change them.'
+      + (team.host ? ` ${team.host.name}'s computer is the host.` : '');
+    $('#open-clear').disabled = !canEdit;
+    $('#clear-host-only').hidden = canEdit;
   }
 
   function markDirty(dirty = true) {
@@ -516,7 +660,7 @@
 
   function renderErrors() {
     for (const el of $$('[data-error-for]')) el.textContent = ui.errors[el.dataset.errorFor] ?? '';
-    for (const name of ['dataDir', 'inboxDir', 'threshold', 'retentionDays']) {
+    for (const name of ['dataDir', 'inboxDir', 'personName', 'threshold', 'retentionDays']) {
       form[name].classList.toggle('invalid', Boolean(ui.errors[name]));
     }
   }
@@ -532,7 +676,7 @@
 
   form.addEventListener('input', (event) => {
     const { name, value } = event.target;
-    if (['dataDir', 'inboxDir', 'threshold', 'retentionDays'].includes(name)) {
+    if (['dataDir', 'inboxDir', 'personName', 'threshold', 'retentionDays'].includes(name)) {
       ui.draft[name] = value;
       markDirty();
       if (name === 'threshold') renderRuleSummary();
@@ -540,6 +684,11 @@
   });
 
   form.addEventListener('change', (event) => {
+    if (event.target.id === 'isHost') {
+      ui.draft.isHost = event.target.checked;
+      markDirty();
+      return;
+    }
     const { list, column } = event.target.dataset ?? {};
     if (!list || column === undefined) return;
     if (event.target.checked) {
@@ -609,12 +758,15 @@
     ui.data.settings = result.settings;
     ui.selectedId = null;
     loadDraft();
+    await refresh();
+    const joined = result.role === 'reviewer' && hostName()
+      ? `Switched to the new data folder. ${hostName()}'s computer is its host, so this computer reviews.`
+      : 'Switched to the new data folder. Its matching settings are now shown here.';
     toast({
-      use: 'Switched to the new data folder. Its matching settings are now shown here.',
+      use: joined,
       copy: 'Your data was copied to the new data folder, and the app is now using it.',
       empty: 'Settings saved. The app is now using the new, empty data folder.',
-    }[result.plan] ?? 'Settings saved. The inbox has been rescanned.', 'success');
-    await refresh();
+    }[result.plan] ?? (isHost() ? 'Settings saved. The inbox has been rescanned.' : 'Settings saved.'), 'success');
   });
 
   // Clear all data -------------------------------------------------------

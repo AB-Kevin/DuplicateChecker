@@ -43,15 +43,20 @@ function summarize(dataDir) {
 
 /**
  * Copies everything in one data folder to another, never overwriting. The
- * inbox comes along when it is the data folder's own Inbox folder.
+ * inbox comes along when it is the data folder's own Inbox folder. Of the
+ * people files (see team.js), only `personId`'s comes along: anyone else's
+ * would show them as present in a folder they have never opened.
  */
-function copyData(from, to, { includeInbox }) {
+function copyData(from, to, { includeInbox, personId }) {
   fs.mkdirSync(to, { recursive: true });
+  const people = path.join(from, APP_DATA, 'people');
+  const mine = path.join(people, `${personId}.json`);
+  const filter = (source) => !source.startsWith(people + path.sep) || source === mine;
   const items = includeInbox ? [...DATA_ITEMS, 'Inbox'] : DATA_ITEMS;
   for (const item of items) {
     const source = path.join(from, item);
     if (fs.existsSync(source)) {
-      fs.cpSync(source, path.join(to, item), { recursive: true, force: false, errorOnExist: false });
+      fs.cpSync(source, path.join(to, item), { recursive: true, force: false, errorOnExist: false, filter });
     }
   }
 }

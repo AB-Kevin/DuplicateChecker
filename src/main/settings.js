@@ -4,18 +4,23 @@ const path = require('path');
 const { readJson, writeJson } = require('./jsonfile');
 const { sharedSettingsPath, defaultInbox, samePath } = require('./datafolder');
 
-// Folder locations differ from computer to computer, so they are kept in the
-// app's profile. Everything else travels with the data folder.
-const LOCAL_KEYS = ['dataDir', 'inboxDir'];
+// Folder locations and who is using this computer differ from computer to
+// computer, so they are kept in the app's profile. Everything else travels
+// with the data folder.
+const LOCAL_KEYS = ['dataDir', 'inboxDir', 'personId', 'personName', 'isHost', 'hostSince'];
 const SHARED_KEYS = ['requiredFields', 'fields', 'threshold', 'retentionDays'];
 
 const pick = (object, keys) => Object.fromEntries(keys.filter((k) => k in object).map((k) => [k, object[k]]));
 
-function defaultSettings(documentsDir) {
+function defaultSettings(documentsDir, userName = 'Me') {
   const dataDir = path.join(documentsDir, 'Duplicate Checker');
   return {
     dataDir,
     inboxDir: defaultInbox(dataDir),
+    personId: null, // set once per computer; names this person's file in the data folder
+    personName: userName, // shown to others using the same data folder
+    isHost: true, // see team.js
+    hostSince: null,
     requiredFields: [], // columns that must always match
     fields: [], // columns where at least `threshold` must match
     threshold: 3,
@@ -31,7 +36,12 @@ function validateSettings(input, defaults) {
   const errors = {};
   const settings = { ...defaults, ...input };
 
-  for (const key of LOCAL_KEYS) {
+  settings.personName = String(settings.personName ?? '').replace(/\s+/g, ' ').trim();
+  if (!settings.personName) errors.personName = 'Enter the name others will see.';
+  else if (settings.personName.length > 60) errors.personName = 'Use 60 characters or fewer.';
+  settings.isHost = settings.isHost === true;
+
+  for (const key of ['dataDir', 'inboxDir']) {
     settings[key] = String(settings[key] ?? '').trim();
     if (!settings[key]) errors[key] = 'Choose a folder.';
     else if (!path.isAbsolute(settings[key])) errors[key] = 'Use a full folder path.';
@@ -77,7 +87,7 @@ function validateSettings(input, defaults) {
 }
 
 /**
- * Reads the folder locations from `localPath` and the rest from the data
+ * Reads this computer's settings from `localPath` and the rest from the data
  * folder. Settings files from before the data folder held everything named it
  * `outputDir` and kept the matching rules locally; those rules are used until
  * the data folder has its own. Returns { settings, sharedFound }.
@@ -94,7 +104,7 @@ function loadSettings(localPath, defaults) {
   return { settings, sharedFound: Boolean(shared) };
 }
 
-/** Writes the folder locations to `localPath`, and unless `localOnly`, the rest to the data folder. */
+/** Writes this computer's settings to `localPath`, and unless `localOnly`, the rest to the data folder. */
 function saveSettings(localPath, settings, { localOnly = false } = {}) {
   writeJson(localPath, pick(settings, LOCAL_KEYS));
   if (!localOnly) writeJson(sharedSettingsPath(settings.dataDir), pick(settings, SHARED_KEYS));

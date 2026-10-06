@@ -222,6 +222,17 @@ kbd {
 .watch-status.error::before { background: var(--gray-900); }
 .watch-status span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* Warnings about sharing the data folder (two hosts, no host, saving held up). */
+.banner {
+  flex: 0 0 auto;
+  padding: var(--space-3) var(--space-6);
+  background: var(--green-050);
+  border-bottom: 1px solid var(--gray-200);
+  border-left: 4px solid var(--gray-900);
+  font-size: var(--text-small);
+}
+.banner p + p { margin-top: var(--space-1); }
+
 /* Layout ----------------------------------------------------------------- */
 main { flex: 1 1 auto; min-height: 0; display: flex; }
 .view { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
@@ -304,6 +315,7 @@ main { flex: 1 1 auto; min-height: 0; display: flex; }
   white-space: nowrap;
 }
 .queue-item .qi-meta { grid-column: 1 / -1; font-size: var(--text-caption); color: var(--text-muted); }
+.queue-item .qi-people { grid-column: 1 / -1; font-size: var(--text-caption); font-weight: 500; color: var(--green-700); }
 .queue-item.decided .qi-summary { color: var(--text-muted); }
 
 .detail { min-width: 0; overflow: auto; padding: var(--space-6); }
@@ -324,6 +336,15 @@ main { flex: 1 1 auto; min-height: 0; display: flex; }
 }
 .detail-head .lede { margin-top: var(--space-2); max-width: 62ch; }
 .decision { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+.people-note {
+  margin-top: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  max-width: 62ch;
+  background: var(--green-100);
+  border-radius: var(--radius-control);
+  font-size: var(--text-small);
+}
+.people-note p + p { margin-top: var(--space-1); }
 
 .compare-wrap {
   margin-top: var(--space-5);
@@ -509,6 +530,20 @@ input.invalid { border-color: var(--green-700); }
 .check.taken input { cursor: default; }
 
 .intro { max-width: 68ch; margin-bottom: var(--space-4); }
+.name-input { width: min(360px, 100%); }
+
+/* Matching and retention settings are shared; only the host can change them. */
+.shared-settings { border: none; margin: 0; padding: 0; min-width: 0; }
+.shared-settings:disabled .check,
+.shared-settings:disabled input,
+.shared-settings:disabled .btn { opacity: 0.45; cursor: default; }
+.shared-note {
+  margin-top: var(--space-5);
+  padding: var(--space-3) var(--space-5);
+  background: var(--green-100);
+  border-radius: var(--radius-card);
+  max-width: 68ch;
+}
 .rule-summary {
   background: var(--green-100);
   border-radius: var(--radius-card);

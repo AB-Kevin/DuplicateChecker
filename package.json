@@ -30,7 +30,12 @@
       "build/icon.png",
       "package.json"
     ],
-    "publish": null,
+    "publish": {
+      "provider": "github",
+      "owner": "AB-Kevin",
+      "repo": "DuplicateChecker",
+      "releaseType": "release"
+    },
     "win": {
       "target": "nsis",
       "icon": "build/icon.png"

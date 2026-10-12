@@ -43,10 +43,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          installer="dist/DuplicateChecker-Setup-${GITHUB_REF_NAME#v}.exe"
-          # Re-running this job replaces the installer on the existing release.
+          # latest.yml lists the installer's size and SHA-512 digest. The app's
+          # update check and AB Apps both read it from the latest release.
+          files=("dist/DuplicateChecker-Setup-${GITHUB_REF_NAME#v}.exe" dist/latest.yml)
+          # Re-running this job replaces the files on the existing release.
           if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" "$installer" --clobber
+            gh release upload "$GITHUB_REF_NAME" "${files[@]}" --clobber
           else
-            gh release create "$GITHUB_REF_NAME" "$installer" --title "Duplicate Checker $GITHUB_REF_NAME" --generate-notes
+            # Published only once both files are attached, so the latest
+            # release never lacks latest.yml.
+            gh release create "$GITHUB_REF_NAME" "${files[@]}" --draft --title "Duplicate Checker $GITHUB_REF_NAME" --generate-notes
+            gh release edit "$GITHUB_REF_NAME" --draft=false --latest
           fi

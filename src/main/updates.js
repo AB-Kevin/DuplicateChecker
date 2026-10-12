@@ -5,10 +5,14 @@ const path = require('path');
 const crypto = require('crypto');
 const { once } = require('events');
 
-// Releases are published here by .github/workflows/release.yml.
+// Releases are published here by .github/workflows/release.yml, each with the
+// latest.yml electron-builder writes beside the installer. Reading that file
+// from the latest release's download link, rather than asking the GitHub API,
+// avoids the API's limit of 60 requests an hour per network. AB Apps reads the
+// same file to install and update this app.
 const REPO = 'AB-Kevin/DuplicateChecker';
-const LATEST_RELEASE_URL = `https://api.github.com/repos/${REPO}/releases/latest`;
 const RELEASES_PAGE = `https://github.com/${REPO}/releases`;
+const LATEST_YML_URL = `${RELEASES_PAGE}/latest/download/latest.yml`;
 
 /** The installer's name, as set by package.json "build.nsis.artifactName". */
 const installerName = (version) => `DuplicateChecker-Setup-${version}.exe`;
@@ -27,53 +31,78 @@ function isNewer(a, b) {
   return i >= 0 && x[i] > y[i];
 }
 
+/** Removes the quotes YAML may put around a value. */
+const unquote = (value) => value.trim().replace(/^'(.*)'$|^"(.*)"$/, '$1$2');
+
 /**
- * Asks GitHub for the latest release. Returns { version, newer, publishedAt,
- * pageUrl, installer }, where installer is { name, size, url, sha256 } or null
- * if the release has no installer. `fetch` is Electron's net.fetch, which uses
+ * Reads the parts of an electron-builder latest.yml this app uses:
+ * { version, releaseDate, files: [{ url, sha512, size }] }. The file is
+ * always this flat shape, so a full YAML parser isn't needed.
+ */
+function parseLatestYml(text) {
+  const info = { files: [] };
+  for (const line of String(text).split(/\r?\n/)) {
+    const top = /^(\w+):(.*)$/.exec(line);
+    if (top) {
+      if (top[1] !== 'files') info[top[1]] = unquote(top[2]);
+      continue;
+    }
+    const item = /^\s*(-\s+)?(url|sha512|size):(.*)$/.exec(line);
+    if (!item) continue;
+    if (item[1]) info.files.push({});
+    const file = info.files.at(-1);
+    if (file) file[item[2]] = item[2] === 'size' ? Number(unquote(item[3])) : unquote(item[3]);
+  }
+  return info;
+}
+
+/**
+ * Reads latest.yml from GitHub's latest release, so drafts and pre-releases
+ * are never offered. Returns { version, newer, publishedAt, pageUrl,
+ * installer }, where installer is { name, size, url, sha512 } or null if the
+ * release has no installer. `fetch` is Electron's net.fetch, which uses
  * Windows' proxy settings.
  */
 async function checkForUpdate(currentVersion, fetch) {
   let response;
   try {
-    response = await fetch(LATEST_RELEASE_URL, {
-      headers: { Accept: 'application/vnd.github+json' },
-      signal: AbortSignal.timeout(20000),
-    });
+    response = await fetch(LATEST_YML_URL, { signal: AbortSignal.timeout(20000) });
   } catch {
     throw new Error("Couldn't reach GitHub to check for updates. Check the internet connection and try again.");
   }
-  if (response.status === 404) throw new Error('No releases have been published yet.');
+  if (response.status === 404) throw new Error('No release is ready yet. If one was just published, try again in a few minutes.');
   if (response.status === 403 || response.status === 429) {
     throw new Error('GitHub is limiting how often this computer can check for updates. Try again in an hour.');
   }
   if (!response.ok) throw new Error(`GitHub couldn't be checked for updates (error ${response.status}). Try again later.`);
 
-  const release = await response.json();
-  const version = String(release.tag_name ?? '').replace(/^v/, '');
+  const latest = parseLatestYml(await response.text());
+  const version = String(latest.version ?? '').replace(/^v/, '');
   if (!parseVersion(version)) {
-    throw new Error(`The latest release, ${release.tag_name}, doesn't have a version number this app recognizes.`);
+    throw new Error(`The latest release, ${latest.version || 'with no version'}, doesn't have a version number this app recognizes.`);
   }
   // Only ever download this repository's installer for this version.
-  const asset = (release.assets ?? []).find((a) => a.name === installerName(version)
-    && a.browser_download_url === `${RELEASES_PAGE}/download/${release.tag_name}/${a.name}`);
-  const sha256 = /^sha256:([0-9a-f]{64})$/i.exec(asset?.digest ?? '')?.[1].toLowerCase() ?? null;
+  const file = latest.files.find((f) => f.url === installerName(version)
+    && /^[A-Za-z0-9+/]{86}==$/.test(f.sha512 ?? '') && Number.isSafeInteger(f.size) && f.size > 0);
+  const tag = `v${version}`;
   return {
     version,
     newer: isNewer(version, currentVersion),
-    publishedAt: release.published_at ?? null,
-    pageUrl: `${RELEASES_PAGE}/tag/${encodeURIComponent(release.tag_name)}`,
-    installer: asset ? { name: asset.name, size: asset.size, url: asset.browser_download_url, sha256 } : null,
+    publishedAt: latest.releaseDate || null,
+    pageUrl: `${RELEASES_PAGE}/tag/${tag}`,
+    installer: file
+      ? { name: file.url, size: file.size, url: `${RELEASES_PAGE}/download/${tag}/${file.url}`, sha512: file.sha512 }
+      : null,
   };
 }
 
-/** Whether `filePath` is the installer described, judged by its size and SHA-256 digest. */
-async function isInstaller(filePath, { size, sha256 }) {
+/** Whether `filePath` is the installer described, judged by its size and SHA-512 digest. */
+async function isInstaller(filePath, { size, sha512 }) {
   try {
-    if (!sha256 || fs.statSync(filePath).size !== size) return false;
-    const hash = crypto.createHash('sha256');
+    if (!sha512 || fs.statSync(filePath).size !== size) return false;
+    const hash = crypto.createHash('sha512');
     for await (const chunk of fs.createReadStream(filePath)) hash.update(chunk);
-    return hash.digest('hex') === sha256;
+    return hash.digest('base64') === sha512;
   } catch {
     return false;
   }
@@ -81,7 +110,7 @@ async function isInstaller(filePath, { size, sha256 }) {
 
 /**
  * Downloads the installer into `dir`, checking it against the size and
- * SHA-256 digest GitHub gave for it. One already downloaded is reused.
+ * SHA-512 digest latest.yml gave for it. One already downloaded is reused.
  * Calls onProgress(received, total) as it goes. Returns the file's path.
  */
 async function downloadInstaller(installer, dir, fetch, onProgress = () => {}) {
@@ -90,7 +119,7 @@ async function downloadInstaller(installer, dir, fetch, onProgress = () => {}) {
 
   fs.mkdirSync(dir, { recursive: true });
   const partPath = `${target}.part`;
-  const hash = crypto.createHash('sha256');
+  const hash = crypto.createHash('sha512');
   let received = 0;
   const out = fs.createWriteStream(partPath);
   try {
@@ -110,7 +139,7 @@ async function downloadInstaller(installer, dir, fetch, onProgress = () => {}) {
     throw new Error("The update couldn't be downloaded. Check the internet connection and try again.");
   }
 
-  if (received !== installer.size || (installer.sha256 && hash.digest('hex') !== installer.sha256)) {
+  if (received !== installer.size || hash.digest('base64') !== installer.sha512) {
     fs.rmSync(partPath, { force: true });
     throw new Error("The downloaded update didn't match the release on GitHub, so it wasn't installed. Try again.");
   }
@@ -118,4 +147,4 @@ async function downloadInstaller(installer, dir, fetch, onProgress = () => {}) {
   return target;
 }
 
-module.exports = { RELEASES_PAGE, parseVersion, isNewer, checkForUpdate, downloadInstaller };
+module.exports = { RELEASES_PAGE, parseVersion, isNewer, parseLatestYml, checkForUpdate, downloadInstaller };

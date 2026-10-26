@@ -38,6 +38,7 @@ let team;
 // This computer is set as host and no longer-serving host is active, so it
 // imports files and writes the shared files. See team.js.
 let actingHost = false;
+let hostError = null; // why this computer couldn't take up hosting; it tries again each tick
 let lastApplyError = null;
 let latestRelease = null; // from the last update check; updates are only downloaded from it
 let installing = null;
@@ -129,10 +130,20 @@ async function processInboxFile(filePath) {
 async function updateRole() {
   const hosts = activeHosts(team.people());
   const shouldAct = settings.isHost && hosts[0]?.id === team.me.id;
+  if (!shouldAct) hostError = null;
   if (shouldAct === actingHost) return;
   actingHost = shouldAct;
   if (actingHost) {
-    await becomeHost();
+    try {
+      await becomeHost();
+      hostError = null;
+    } catch (err) {
+      // Hosting from a review queue that couldn't be read would save an empty
+      // one over it, so this computer stays a reviewer until it can be read.
+      actingHost = false;
+      hostError = err.message;
+      throw err;
+    }
   } else {
     await watcher.stop();
     state = readSharedState();
@@ -252,6 +263,7 @@ function teamInfo() {
         };
       }),
     applyError: state.applyError ?? null,
+    hostError,
     waitingToSave: firstSentDecisions(people, state.queue).size,
   };
 }
@@ -588,20 +600,33 @@ function watchTeam() {
   // Someone arrived, left, made a decision or sent some: re-check who is
   // host, and as host, save anything newly sent.
   team.on('people', () => exclusive(async () => {
-    await updateRole();
-    if (actingHost) autoApply();
+    try {
+      await updateRole();
+      if (actingHost) autoApply();
+    } catch {
+      // hostError says why; the next tick tries again.
+    }
     stateChanged();
   }));
-  // The host saved the review queue: everyone else reloads it.
+  // The host saved the review queue: everyone else reloads it. One that
+  // can't be read yet keeps the last copy until it changes again.
   team.on('state-file', () => exclusive(() => {
     if (actingHost) return;
-    state = readSharedState();
+    try {
+      state = readSharedState();
+    } catch {
+      return;
+    }
     settleMine();
     stateChanged();
   }));
   team.on('settings-file', () => exclusive(() => {
     if (actingHost) return;
-    settings = loadSettings(localSettingsPath(), defaults()).settings;
+    try {
+      settings = loadSettings(localSettingsPath(), defaults()).settings;
+    } catch {
+      return;
+    }
     stateChanged();
   }));
 }
@@ -645,7 +670,16 @@ app.whenReady().then(async () => {
   app.setAppUserModelId(APP_ID);
   Menu.setApplicationMenu(null);
 
-  const loaded = loadSettings(localSettingsPath(), defaults());
+  let loaded;
+  let folderError = null;
+  try {
+    loaded = loadSettings(localSettingsPath(), defaults());
+  } catch (err) {
+    // The data folder's settings couldn't be read. It isn't opened below, so
+    // nothing is saved over them.
+    folderError = err;
+    loaded = loadSettings(localSettingsPath(), defaults(), { localOnly: true });
+  }
   settings = loaded.settings;
   settings.personId ??= crypto.randomUUID();
   if (settings.isHost && !settings.hostSince) settings.hostSince = new Date().toISOString();
@@ -667,6 +701,7 @@ app.whenReady().then(async () => {
   createWindow();
 
   try {
+    if (folderError) throw folderError;
     // Rewrites the local file with this computer's settings only, and gives a
     // data folder without settings of its own (a new one, or one from an
     // earlier version) the current matching settings.

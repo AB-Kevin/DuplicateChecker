@@ -141,7 +141,9 @@
   function renderBanner() {
     const { team, queue } = ui.data;
     const lines = [];
-    if (team.role === 'waiting-host') {
+    if (team.hostError) {
+      lines.push(`This computer is set as the host but can't start hosting. ${team.hostError} It tries again every half minute; until then it reviews, and nothing is imported or saved.`);
+    } else if (team.role === 'waiting-host') {
       lines.push(`This computer is set as the host, but ${team.host?.name ?? 'another computer'}'s computer already is. Only one host works at a time, so this computer is reviewing until that app closes. To stop being the host, turn it off under Settings, Sharing.`);
     } else if (team.role === 'host' && team.otherHosts.length) {
       lines.push(`${listText(team.otherHosts)} ${team.otherHosts.length === 1 ? 'is' : 'are'} also set as the host. This computer is acting as host; the others are waiting.`);

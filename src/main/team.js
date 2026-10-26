@@ -41,8 +41,16 @@ function readPeople(dataDir) {
   }
   return names
     .filter((name) => PERSON_FILE.test(name))
-    .map((name) => readJson(path.join(peopleDir(dataDir), name), null))
+    .map((name) => readPerson(path.join(peopleDir(dataDir), name)))
     .filter((person) => person && person.id);
+}
+
+function readPerson(file) {
+  try {
+    return readJson(file, null);
+  } catch {
+    return null; // still syncing, or damaged: left out until it next changes
+  }
 }
 
 function isActive(person, now = Date.now()) {
@@ -197,8 +205,9 @@ class Team extends EventEmitter {
 
   open(dataDir, { isHost, hostSince }) {
     this.close();
-    this.dataDir = dataDir;
+    // Throws if this person's file can't be read, rather than writing their decisions away.
     const saved = readJson(personPath(dataDir, this.identity.id), {});
+    this.dataDir = dataDir;
     this.me = {
       id: this.identity.id,
       name: this.identity.name,

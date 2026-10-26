@@ -28,7 +28,12 @@ function samePath(a, b) {
 
 /** What a data folder holds, for deciding what to do when switching to it. */
 function summarize(dataDir) {
-  const state = readJson(statePath(dataDir), {});
+  let state = {};
+  try {
+    state = readJson(statePath(dataDir), {});
+  } catch {
+    // Counted as empty here; opening the folder reports the problem.
+  }
   const summary = {
     configured: fs.existsSync(sharedSettingsPath(dataDir)),
     database: fs.existsSync(path.join(dataDir, 'Database.xlsx')),
@@ -64,7 +69,8 @@ function copyData(from, to, { includeInbox, personId }) {
 /**
  * Loads the review queue and activity log. Earlier versions kept them in the
  * app's profile folder (`legacyPath`); if the data folder has none yet, that
- * file is moved in and renamed so it isn't moved again.
+ * file is moved in and renamed so it isn't moved again. Throws if the file is
+ * there but can't be read, so an empty queue is never saved over it.
  */
 function loadState(dataDir, legacyPath) {
   const file = statePath(dataDir);

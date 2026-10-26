@@ -89,9 +89,23 @@ test('people files are read, and OneDrive conflict copies are ignored', () => {
   writeJson(personPath(dataDir, id), person(id));
   writeJson(path.join(peopleDir(dataDir), `${id}-KEVIN-PC.json`), person(id, { name: 'conflict copy' }));
   fs.writeFileSync(path.join(peopleDir(dataDir), 'notes.txt'), 'x');
+  // Someone else's file caught mid-sync is left out until it next changes.
+  fs.writeFileSync(personPath(dataDir, '5a1d6e2c-3f4b-4c8d-9e0f-1a2b3c4d5e6f'), '{"id": "5a1d');
   const people = readPeople(dataDir);
   assert.equal(people.length, 1);
   assert.equal(people[0].name, id);
+});
+
+test("a person whose own file can't be read isn't signed in, and the file is left as it is", () => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dupcheck-me-'));
+  const id = '7c9e6679-7425-40de-944b-e07fc1f90ae7';
+  fs.mkdirSync(peopleDir(dataDir), { recursive: true });
+  fs.writeFileSync(personPath(dataDir, id), '{"decisions": {"a"');
+
+  const team = new Team({ id, name: 'Kevin' });
+  assert.throws(() => team.open(dataDir, { isHost: true }), /damaged/);
+  assert.equal(fs.readFileSync(personPath(dataDir, id), 'utf8'), '{"decisions": {"a"');
+  team.close(); // nothing to close
 });
 
 function hostWithQueue() {

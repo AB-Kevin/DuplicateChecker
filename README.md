@@ -73,6 +73,7 @@ Several people can review at the same time from one shared data folder.
 - **First sent wins.** Once someone sends a decision for an entry, it is settled for everyone. If two people send different decisions before seeing each other's, the first one sent is used, and the other person is told.
 - **The host's app has to be open** for decisions to be saved. Until it is, sent decisions wait safely, and a banner says so.
 - **Two hosts.** If two computers are set as host, the one that has been host longer keeps the job and the other waits, with a banner on both. When the acting host closes its app, the waiting one takes over.
+- **A file OneDrive is still syncing.** OneDrive briefly locks files while it uploads them, and the app waits for them. If the review queue (`review-state.json`) still can't be read, the host doesn't start hosting: a banner says why, nothing is imported or saved, and it tries again every half minute. If it says the file is damaged, restore it from OneDrive's version history.
 
 How it works: every file has one writer, so OneDrive never has to merge two people's changes. Each person's copy of the app writes only its own file in `App data/people/`; the host writes everything else. Changes appear on the other computers as fast as OneDrive syncs them, usually within seconds. "First sent" goes by each computer's clock, so keep Windows' automatic time setting on.
 

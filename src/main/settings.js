@@ -95,11 +95,20 @@ function validateSettings(input, defaults) {
  * folder. Settings files from before the data folder held everything named it
  * `outputDir` and kept the matching rules locally; those rules are used until
  * the data folder has its own. Returns { settings, sharedFound }.
+ *
+ * Throws if the data folder's settings are there but can't be read, rather
+ * than using defaults that would then be saved over them. `localOnly` skips
+ * them and uses this computer's settings alone.
  */
-function loadSettings(localPath, defaults) {
-  const stored = readJson(localPath, {});
+function loadSettings(localPath, defaults, { localOnly = false } = {}) {
+  let stored = {};
+  try {
+    stored = readJson(localPath, {});
+  } catch {
+    // This computer's own file isn't shared; a damaged one is replaced with defaults.
+  }
   const dataDir = stored.dataDir ?? stored.outputDir ?? defaults.dataDir;
-  const shared = readJson(sharedSettingsPath(dataDir), null);
+  const shared = localOnly ? null : readJson(sharedSettingsPath(dataDir), null);
   const { settings } = validateSettings({
     ...pick(stored, LOCAL_KEYS),
     dataDir,

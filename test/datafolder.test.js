@@ -76,6 +76,37 @@ test('the review queue from the app profile moves into the data folder once', ()
   assert.deepEqual(loadState(dataDir, legacy).queue, [{ id: 'a' }]);
 });
 
+test('a review queue that can\'t be read throws, and is left as it is', () => {
+  const root = tempDir();
+  const dataDir = path.join(root, 'Data');
+  fs.mkdirSync(path.dirname(statePath(dataDir)), { recursive: true });
+  fs.writeFileSync(statePath(dataDir), '{"queue": [{"id": "a"}');
+
+  assert.throws(() => loadState(dataDir, null), /damaged/);
+  assert.equal(fs.readFileSync(statePath(dataDir), 'utf8'), '{"queue": [{"id": "a"}');
+  // Describing the folder still works; opening it reports the problem.
+  assert.equal(summarize(dataDir).reviewItems, 0);
+});
+
+test('matching settings that can\'t be read throw, unless only this computer\'s are wanted', () => {
+  const root = tempDir();
+  const localPath = path.join(root, 'profile', 'settings.json');
+  const dataDir = path.join(root, 'Shared');
+  writeJson(localPath, { dataDir, personName: 'Jane' });
+  fs.mkdirSync(path.dirname(sharedSettingsPath(dataDir)), { recursive: true });
+  fs.writeFileSync(sharedSettingsPath(dataDir), '{"fields": [');
+  const defaults = defaultSettings(root);
+
+  assert.throws(() => loadSettings(localPath, defaults), /damaged/);
+  const { settings } = loadSettings(localPath, defaults, { localOnly: true });
+  assert.equal(settings.dataDir, dataDir);
+  assert.equal(settings.personName, 'Jane');
+
+  // This computer's own file isn't shared, so a damaged one gives the defaults.
+  fs.writeFileSync(localPath, '{');
+  assert.equal(loadSettings(localPath, defaults, { localOnly: true }).settings.dataDir, defaults.dataDir);
+});
+
 test('copying a data folder brings everything and never overwrites', () => {
   const root = tempDir();
   const from = path.join(root, 'Old');

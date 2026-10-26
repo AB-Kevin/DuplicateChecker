@@ -323,8 +323,8 @@ async function installUpdate() {
   if (response !== 0) return { installing: false };
 
   await exclusive(() => {}); // lets an import or save that is under way finish
-  // --updated: the installer skips the pages asking where to install, waits
-  // for this app to close, and keeps the shortcuts as they are.
+  // --updated: the installer waits for this app to close and keeps the
+  // shortcuts as they are.
   await new Promise((resolve, reject) => {
     const child = spawn(installer, ['--updated'], { detached: true, stdio: 'ignore' });
     child.once('spawn', resolve);

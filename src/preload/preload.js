@@ -18,6 +18,7 @@ contextBridge.exposeInMainWorld('api', {
   setViewing: (itemId) => call('review:viewing', itemId),
   applyDecisions: () => call('review:apply'),
   clearAllData: (phrase) => call('data:clear', phrase),
+  moveData: () => call('data:move'),
   rescanInbox: () => call('inbox:rescan'),
   chooseFilesForInbox: () => call('inbox:choose'),
   addFilesToInbox: (files) => call('inbox:add', Array.from(files, (file) => webUtils.getPathForFile(file))),

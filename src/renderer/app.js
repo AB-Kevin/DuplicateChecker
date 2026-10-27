@@ -583,8 +583,39 @@
     return team.people.filter((p) => !p.isMe && !seen.has(p.person) && seen.add(p.person));
   }
 
+  /** Where the data is: its folder fields come from AB Apps once it's in the AB Apps folder, and a manager on the host can move it there. */
+  function renderFolders() {
+    const { folder, canManage } = ui.data;
+    const fromAbApps = folder?.reason === 'ab-apps';
+    for (const name of ['dataDir', 'inboxDir']) form[name].disabled = fromAbApps;
+    $$('[data-browse]').forEach((button) => (button.disabled = fromAbApps));
+    const note = $('#folder-note');
+    note.hidden = !fromAbApps && folder?.reason !== 'not-moved';
+    if (fromAbApps) {
+      note.innerHTML = "<p class=\"hint\">These are Duplicate Checker's subfolder of the AB Apps folder, which every computer finds by itself.</p>";
+    } else if (folder?.reason === 'not-moved') {
+      note.innerHTML = `<div class="shared-note" style="margin-top: 0"><p>Duplicate Checker's data belongs in the AB Apps folder now, where every computer finds it by
+        itself: ${esc(folder.target)}. Moving it copies the data folder and any files waiting in the inbox there; the current folders are kept as they were,
+        and every other computer switches over on its own.</p>${canManage
+          ? '<button type="button" class="btn btn-primary btn-sm" id="move-data">Move to the AB Apps folder</button>'
+          : '<p class="hint">A manager can move it, on the host computer.</p>'}</div>`;
+    }
+  }
+
+  $('#folder-note').addEventListener('click', async (event) => {
+    if (!event.target.closest('#move-data')) return;
+    event.target.disabled = true;
+    const files = await attempt(() => api.moveData());
+    event.target.disabled = false;
+    if (files == null) return;
+    ui.data = await api.getState();
+    loadDraft();
+    toast(`Moved: ${count(files, 'file')} are in the AB Apps folder now.`, 'success');
+  });
+
   /** Who is using the data folder, and which settings this computer may change. */
   function renderSharing() {
+    renderFolders();
     const { team, abApps } = ui.data;
     // While someone is signed in to AB Apps, others see that name; the one typed here waits for when nobody is.
     form.personName.disabled = Boolean(abApps);

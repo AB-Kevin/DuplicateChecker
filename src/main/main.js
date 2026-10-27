@@ -8,7 +8,8 @@ const { spawn } = require('child_process');
 const { app, BrowserWindow, ipcMain, dialog, shell, Notification, Menu, nativeTheme, net } = require('electron');
 const { SHARED_KEYS, THEMES, defaultSettings, validateSettings, loadSettings, saveSettings } = require('./settings');
 const { statePath, defaultInbox, samePath, summarize, copyData, loadState } = require('./datafolder');
-const { writeJson } = require('ab-common/jsonfile');
+const { readJson, writeJson } = require('ab-common/jsonfile');
+const { appFolder, chooseFolder, readMovedNote, copyFolder, moveToAbApps } = require('ab-common/appfolder');
 const abApps = require('./abapps');
 const { openBooks } = require('./books');
 const { InboxWatcher } = require('./inbox');
@@ -50,6 +51,43 @@ let lastApplyError = null;
 let latestRelease = null; // from the last update check; updates are only downloaded from it
 let installing = null;
 let abIdentity = null; // who is signed in to AB Apps on this computer, or null
+
+// The data lives in the Duplicate Checker subfolder of the AB Apps folder
+// (ab-common's appfolder.js), with its Inbox inside. Data that's still
+// somewhere else stays there until a manager on the host computer moves it
+// from Settings; every other computer follows the note the move leaves.
+const FOLDER_NAME = 'Duplicate Checker';
+let folderChoice = { reason: 'own', target: null };
+
+function abAppsTarget() {
+  return abIdentity?.dataDir && fs.existsSync(abIdentity.dataDir) ? appFolder(abIdentity, FOLDER_NAME) : null;
+}
+
+/**
+ * Works out where the data is, and when that's the AB Apps subfolder but
+ * this computer's settings say otherwise, points them there (its Inbox
+ * folder too). Returns whether they changed; settings are then re-read.
+ */
+function choosePlace() {
+  const local = readJson(localSettingsPath(), {});
+  const own = local.dataDir ?? defaults().dataDir;
+  const target = abAppsTarget();
+  folderChoice = { ...chooseFolder({ own, target, hasData: (dir) => summarize(dir).inUse }), target };
+  if (folderChoice.reason !== 'ab-apps' || samePath(own, folderChoice.dir)) return false;
+  fs.mkdirSync(folderChoice.dir, { recursive: true });
+  writeJson(localSettingsPath(), { ...local, dataDir: folderChoice.dir, inboxDir: defaultInbox(folderChoice.dir) });
+  return true;
+}
+
+/** Re-opens the data in the AB Apps subfolder, once the data is there (see choosePlace). */
+async function followToAbApps() {
+  if (!choosePlace()) return;
+  await watcher.stop();
+  team.close();
+  settings = loadSettings(localSettingsPath(), defaults()).settings;
+  await openDataFolder();
+  stateChanged();
+}
 
 /** The name others see: AB Apps' while someone is signed in there, otherwise the one set in Settings. */
 const shownName = () => abIdentity?.name ?? settings.personName;
@@ -308,6 +346,8 @@ function snapshot() {
     watcher: watcher.status,
     team: teamInfo(),
     abApps: abIdentity && { name: abIdentity.name, class: abIdentity.class },
+    // Where the data is: 'ab-apps', 'own', or 'not-moved' with where it belongs.
+    folder: { reason: folderChoice.reason, target: folderChoice.target },
     canManage: canManage(),
     version: app.getVersion(),
   };
@@ -442,6 +482,8 @@ function registerIpc() {
   handle('state:get', () => snapshot());
 
   handle('settings:save', async (input) => {
+    // While the data is in the AB Apps folder, that's where it stays.
+    if (folderChoice.reason === 'ab-apps') input = { ...input, dataDir: settings.dataDir, inboxDir: settings.inboxDir };
     const { settings: next, errors } = validateSettings(
       { ...input, personId: settings.personId, hostSince: settings.hostSince, theme: settings.theme },
       defaults(),
@@ -545,6 +587,45 @@ function registerIpc() {
     }
   }));
 
+  // A manager on the host moves the data into the AB Apps folder, once:
+  // everything in the data folder, and any files waiting in an inbox kept
+  // outside it. Every other computer follows the note it leaves, and the old
+  // folders are kept as they were.
+  handle('data:move', () => exclusive(async () => {
+    if (folderChoice.reason !== 'not-moved') throw new Error("Duplicate Checker's data is already in the AB Apps folder.");
+    if (!canManage() || !abIdentity) throw new Error('Only a manager, on the host computer, can move the data.');
+    const from = settings.dataDir;
+    const to = folderChoice.target;
+    const oldInbox = settings.inboxDir;
+    const { response } = await dialog.showMessageBox(win, {
+      type: 'question',
+      title: 'Move the data to the AB Apps folder?',
+      message: "Move Duplicate Checker's data to the AB Apps folder?",
+      detail: `Everything in ${from}, and any files waiting in the inbox, is copied to ${to}, and every computer uses it from there. The current folders are left as they were, as a backup you can delete later.`,
+      buttons: ['Move', 'Cancel'],
+      defaultId: 0,
+      cancelId: 1,
+      noLink: true,
+    });
+    if (response !== 0) return null;
+    await watcher.stop();
+    team.close(); // nothing more is written to the old folder from here
+    let files;
+    try {
+      files = moveToAbApps({ from, to, folder: FOLDER_NAME, by: abIdentity.name });
+      const inboxInside = path.resolve(oldInbox).toLowerCase().startsWith(path.resolve(from).toLowerCase() + path.sep);
+      if (!inboxInside && fs.existsSync(oldInbox)) files += copyFolder(oldInbox, defaultInbox(to), { skip: [] });
+    } catch (err) {
+      await openDataFolder(); // back to the old folder, which is unchanged
+      throw err;
+    }
+    choosePlace();
+    settings = loadSettings(localSettingsPath(), defaults()).settings;
+    await openDataFolder();
+    stateChanged();
+    return files;
+  }));
+
   handle('data:clear', (phrase) => {
     if (String(phrase ?? '').trim() !== CLEAR_PHRASE) throw new Error(`Type ${CLEAR_PHRASE} to confirm.`);
     if (!actingHost) throw new Error('Only the host computer can clear all data.');
@@ -641,6 +722,10 @@ function watchTeam() {
     settleMine();
     stateChanged();
   }));
+  // A manager moved the data while this computer had it open: follow it.
+  team.on('tick', () => {
+    if (folderChoice.reason === 'not-moved' && readMovedNote(settings.dataDir)) exclusive(followToAbApps).catch((err) => console.error('folder', err));
+  });
   team.on('settings-file', () => exclusive(() => {
     if (actingHost) return;
     try {
@@ -693,6 +778,12 @@ app.whenReady().then(async () => {
 
   let loaded;
   let folderError = null;
+  abIdentity = abApps.readIdentity(app.getPath('appData'));
+  try {
+    choosePlace();
+  } catch {
+    // This computer's settings file couldn't be read; loadSettings says why.
+  }
   try {
     loaded = loadSettings(localSettingsPath(), defaults());
   } catch (err) {
@@ -716,11 +807,12 @@ app.whenReady().then(async () => {
   books = openBooks(settings.dataDir);
   watcher = new InboxWatcher(processInboxFile);
   watcher.on('status', stateChanged);
-  abIdentity = abApps.readIdentity(app.getPath('appData'));
   team = new Team({ id: settings.personId, name: shownName(), abAppsId: abIdentity?.personId ?? null });
   // Signing in or out of AB Apps, or a manager's rename there, reaches the others right away.
   abApps.watchIdentity(app.getPath('appData'), (next) => {
+    const folderChanged = next?.dataDir !== abIdentity?.dataDir;
     abIdentity = next;
+    if (folderChanged) exclusive(followToAbApps).catch((err) => console.error('folder', err));
     try {
       team.setName(shownName(), abIdentity?.personId ?? null);
     } catch {

@@ -46,6 +46,8 @@ If a file is missing a column from the **must always match** list, it stays in t
 
 ## The data folder
 
+**In the AB Apps folder.** While someone is signed in to [AB Apps](https://github.com/AB-Kevin/ab-apps), Duplicate Checker keeps its data in its `Duplicate Checker` subfolder of the AB Apps folder, and every computer finds it there by itself, so nobody chooses a folder. Its data that's still somewhere else stays there until a manager, on the host computer, moves it once, from Settings with **Move to the AB Apps folder**: it's copied into the subfolder, the old folder is kept as it was, and a note left there sends every other computer along within a minute or so. Without AB Apps, the folder is chosen as below. Files waiting in an inbox outside the data folder come along too, and the inbox becomes the subfolder's `Inbox`.
+
 Everything the app keeps is in one folder, chosen under **Settings → Data folder**:
 
 | In the data folder | What it is |

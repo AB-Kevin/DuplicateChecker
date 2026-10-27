@@ -4,8 +4,9 @@
   "version": "1.1.0",
   "description": "Watches an inbox folder for spreadsheets, flags likely duplicate rows for review, and maintains a rolling database and a duplicates log.",
   "author": "Anabaptist Brotherhood",
-  "main": "src/main/main.js",
+  "license": "UNLICENSED",
   "private": true,
+  "main": "src/main/main.js",
   "scripts": {
     "postinstall": "node node_modules/electron/install.js",
     "start": "electron .",
@@ -15,12 +16,12 @@
   },
   "dependencies": {
     "@fontsource/poppins": "^5.3.0",
-    "ab-common": "git+https://github.com/AB-Kevin/ab-common.git#v1.0.0",
+    "ab-common": "git+https://github.com/AB-Kevin/ab-common.git#v1.0.1",
     "chokidar": "^4.0.3",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "devDependencies": {
-    "electron": "^44.5.1",
+    "electron": "^44.9.3",
     "electron-builder": "^26.15.3"
   },
   "build": {

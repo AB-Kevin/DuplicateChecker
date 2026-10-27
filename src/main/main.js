@@ -6,9 +6,10 @@ const path = require('path');
 const crypto = require('crypto');
 const { spawn } = require('child_process');
 const { app, BrowserWindow, ipcMain, dialog, shell, Notification, Menu, nativeTheme, net } = require('electron');
-const { THEMES, defaultSettings, validateSettings, loadSettings, saveSettings } = require('./settings');
+const { SHARED_KEYS, THEMES, defaultSettings, validateSettings, loadSettings, saveSettings } = require('./settings');
 const { statePath, defaultInbox, samePath, summarize, copyData, loadState } = require('./datafolder');
 const { writeJson } = require('./jsonfile');
+const abApps = require('./abapps');
 const { openBooks } = require('./books');
 const { InboxWatcher } = require('./inbox');
 const { importFile, clearAllData, ImportError, tidyState } = require('./processor');
@@ -42,6 +43,14 @@ let hostError = null; // why this computer couldn't take up hosting; it tries ag
 let lastApplyError = null;
 let latestRelease = null; // from the last update check; updates are only downloaded from it
 let installing = null;
+let abIdentity = null; // who is signed in to AB Apps on this computer, or null
+
+/** The name others see: AB Apps' while someone is signed in there, otherwise the one set in Settings. */
+const shownName = () => abIdentity?.name ?? settings.personName;
+
+/** Whether this computer may change the matching settings and clear all data; see abapps.js. */
+const canManage = () => abApps.canManage(actingHost, abIdentity);
+const MANAGERS_ONLY = 'Only a manager can change the matching settings or clear all data.';
 
 // Only this computer's settings are kept in the app's profile; see datafolder.js.
 const localSettingsPath = () => path.join(app.getPath('userData'), 'settings.json');
@@ -256,6 +265,7 @@ function teamInfo() {
         const viewing = state.queue.find((item) => item.id === p.viewing);
         return {
           name: p.name,
+          person: p.abAppsId ?? p.id, // the same for one AB Apps person on two computers
           computer: p.computer,
           role: hosts[0]?.id === p.id ? 'host' : 'reviewer',
           isMe: p.id === team.me.id,
@@ -291,6 +301,8 @@ function snapshot() {
     knownColumns: knownColumns(),
     watcher: watcher.status,
     team: teamInfo(),
+    abApps: abIdentity && { name: abIdentity.name, class: abIdentity.class },
+    canManage: canManage(),
     version: app.getVersion(),
   };
 }
@@ -429,6 +441,8 @@ function registerIpc() {
       defaults(),
     );
     if (Object.keys(errors).length) return { errors };
+    // Anyone else keeps the folder's matching and retention settings as they are.
+    if (!canManage()) for (const key of SHARED_KEYS) next[key] = settings[key];
     if (next.isHost && !settings.isHost) next.hostSince = new Date().toISOString();
     if (!next.isHost) next.hostSince = null;
 
@@ -461,7 +475,7 @@ function registerIpc() {
         team.close();
         await openDataFolder();
       } else {
-        if (team.me.name !== next.personName) team.setName(next.personName);
+        if (team.me.name !== shownName()) team.setName(shownName());
         if (roleChanged) team.setRole(next.isHost, next.hostSince);
         await updateRole();
         if (inboxChanged && actingHost) await watcher.start(settings.inboxDir);
@@ -528,6 +542,7 @@ function registerIpc() {
   handle('data:clear', (phrase) => {
     if (String(phrase ?? '').trim() !== CLEAR_PHRASE) throw new Error(`Type ${CLEAR_PHRASE} to confirm.`);
     if (!actingHost) throw new Error('Only the host computer can clear all data.');
+    if (!canManage()) throw new Error(MANAGERS_ONLY);
     return exclusive(() => {
       try {
         const removed = clearAllData({ books, state, saveState });
@@ -695,7 +710,18 @@ app.whenReady().then(async () => {
   books = openBooks(settings.dataDir);
   watcher = new InboxWatcher(processInboxFile);
   watcher.on('status', stateChanged);
-  team = new Team({ id: settings.personId, name: settings.personName });
+  abIdentity = abApps.readIdentity(app.getPath('appData'));
+  team = new Team({ id: settings.personId, name: shownName(), abAppsId: abIdentity?.personId ?? null });
+  // Signing in or out of AB Apps, or a manager's rename there, reaches the others right away.
+  abApps.watchIdentity(app.getPath('appData'), (next) => {
+    abIdentity = next;
+    try {
+      team.setName(shownName(), abIdentity?.personId ?? null);
+    } catch {
+      // The data folder is unavailable for now; the next heartbeat writes the new name.
+    }
+    stateChanged();
+  });
   watchTeam();
   registerIpc();
   createWindow();

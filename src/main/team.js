@@ -193,7 +193,7 @@ function annotateQueue(queue, me, people, now = Date.now()) {
 class Team extends EventEmitter {
   constructor(identity) {
     super();
-    this.identity = identity; // { id, name }
+    this.identity = identity; // { id, name, abAppsId }; id is this computer's, abAppsId the AB Apps person's, or null
     this.dataDir = null;
     this.me = null;
     this.others = [];
@@ -211,6 +211,7 @@ class Team extends EventEmitter {
     this.me = {
       id: this.identity.id,
       name: this.identity.name,
+      abAppsId: this.identity.abAppsId ?? null,
       computer: os.hostname(),
       role: isHost ? 'host' : 'reviewer',
       hostSince: isHost ? hostSince : null,
@@ -324,9 +325,12 @@ class Team extends EventEmitter {
     this.write();
   }
 
-  setName(name) {
-    this.identity.name = name;
+  /** A new name, from Settings or AB Apps, and who this is in AB Apps (null when nobody is signed in there). */
+  setName(name, abAppsId = this.identity.abAppsId ?? null) {
+    this.identity = { ...this.identity, name, abAppsId };
+    if (!this.me) return;
     this.me.name = name;
+    this.me.abAppsId = abAppsId;
     this.write();
   }
 

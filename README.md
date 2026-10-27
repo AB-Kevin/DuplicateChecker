@@ -25,7 +25,7 @@ Files already in the inbox when the app starts are picked up then, so nothing is
 | --- | --- |
 | Data folder | Holds everything the app keeps; see [The data folder](#the-data-folder). |
 | Inbox folder | The folder the host watches. By default the `Inbox` folder inside the data folder, in which case it moves when the data folder does. |
-| Your name | Shown to others using the same data folder. |
+| Your name | Shown to others using the same data folder. While someone is signed in to [AB Apps](https://github.com/AB-Kevin/ab-apps), their AB Apps name is shown instead and this field is read-only. |
 | This computer is the host | See [Reviewing together](#reviewing-together). |
 | Columns that must always match | Every column checked here has to match for a row to be flagged. |
 | Columns where some must match | At least *N* of the columns checked here also have to match. A column can be in only one of the two lists. Columns from files you've dropped in are listed automatically; you can also read them from a spreadsheet or type them. The **Current rule** box spells out the combined rule. |
@@ -68,7 +68,7 @@ Each computer only remembers where the data folder and the inbox are, your name,
 Several people can review at the same time from one shared data folder.
 
 - **One computer is the host.** It imports new files from the inbox and saves everyone's decisions to Database.xlsx and Duplicates.xlsx. Turn this on under **Settings → Sharing → This computer is the host**. A new install starts as host; someone who switches to a folder another computer is already hosting joins as a reviewer.
-- **Everyone else reviews.** Their decisions go to the host with **Send decisions**, and the host saves them within a few seconds of OneDrive syncing. Reviewers see the matching settings but only the host can change them, or clear all data.
+- **Everyone else reviews.** Their decisions go to the host with **Send decisions**, and the host saves them within a few seconds of OneDrive syncing. Reviewers see the matching settings but only the host can change them, or clear all data. While someone is signed in to AB Apps on the host, they also have to be a manager there.
 - **You can see each other.** Each entry shows who else has it open and any decision someone has made but not sent. The Activity screen lists everyone using the folder.
 - **First sent wins.** Once someone sends a decision for an entry, it is settled for everyone. If two people send different decisions before seeing each other's, the first one sent is used, and the other person is told.
 - **The host's app has to be open** for decisions to be saved. Until it is, sent decisions wait safely, and a banner says so.
@@ -76,6 +76,8 @@ Several people can review at the same time from one shared data folder.
 - **A file OneDrive is still syncing.** OneDrive briefly locks files while it uploads them, and the app waits for them. If the review queue (`review-state.json`) still can't be read, the host doesn't start hosting: a banner says why, nothing is imported or saved, and it tries again every half minute. If it says the file is damaged, restore it from OneDrive's version history.
 
 How it works: every file has one writer, so OneDrive never has to merge two people's changes. Each person's copy of the app writes only its own file in `App data/people/`; the host writes everything else. Changes appear on the other computers as fast as OneDrive syncs them, usually within seconds. "First sent" goes by each computer's clock, so keep Windows' automatic time setting on.
+
+**With AB Apps.** While someone is signed in to AB Apps on a computer, the others see their AB Apps name, and signing in or out there shows up within a few seconds (`src/main/abapps.js`). Only a manager can change the matching and retention settings or clear all data, as well as being on the host computer; an employee or contractor sees them read-only. Each computer still writes its own file in `App data/people/`, but records the AB Apps person in it, so one person on two computers counts once, and Settings lists your other computer as "you on" and its name. Without AB Apps, the name set in Settings is used as before.
 
 To hand the work to someone else for good, share the folder with them. They make their computer the host, or it becomes host on its own once yours is closed.
 
@@ -142,6 +144,7 @@ npm install https://cdn.sheetjs.com/xlsx-X.Y.Z/xlsx-X.Y.Z.tgz
 | `src/main/settings.js` | Settings defaults, validation, loading and saving |
 | `src/main/datafolder.js` | Data folder layout: copying, summarizing, moving data from earlier versions |
 | `src/main/team.js` | Reviewing together: people files, choosing the host, saving sent decisions |
+| `src/main/abapps.js` | Who is signed in to AB Apps |
 | `src/main/jsonfile.js` | Reading and writing JSON files safely |
 | `src/main/updates.js` | Checking GitHub for a newer release and downloading its installer |
 | `src/shared/matcher.js` | Value normalization and the match index (also used by the review screen) |

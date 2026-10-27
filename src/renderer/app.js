@@ -121,7 +121,7 @@
       stateClass = team.host ? 'watching' : 'stopped';
       text = team.host ? `Reviewing · ${team.host.name} is host` : 'Reviewing · no host running';
     }
-    const others = team.people.filter((p) => !p.isMe).map((p) => p.name);
+    const others = otherPeople(team);
     if (others.length) text += ` · ${count(others.length, 'other person', 'other people')} here`;
     const status = $('#watch-status');
     status.className = `watch-status ${stateClass}`;
@@ -576,24 +576,47 @@
     markDirty(false);
   }
 
+  /** Everyone else using the data folder, once each: one AB Apps person on two computers is one person. */
+  function otherPeople(team) {
+    const me = team.people.find((p) => p.isMe)?.person;
+    const seen = new Set([me]);
+    return team.people.filter((p) => !p.isMe && !seen.has(p.person) && seen.add(p.person));
+  }
+
   /** Who is using the data folder, and which settings this computer may change. */
   function renderSharing() {
-    const { team } = ui.data;
+    const { team, abApps } = ui.data;
+    // While someone is signed in to AB Apps, others see that name; the one typed here waits for when nobody is.
+    form.personName.disabled = Boolean(abApps);
+    const shown = abApps ? abApps.name : ui.draft.personName;
+    if (form.personName.value !== shown) form.personName.value = shown;
+    $('#name-hint').textContent = abApps
+      ? "Shown to others using the same data folder. It comes from AB Apps, where you're signed in; a manager changes it there."
+      : 'Shown to others using the same data folder.';
     const role = {
       host: 'This computer is the host.',
       'waiting-host': `This computer is set as the host, but ${hostName() ?? 'another computer'}'s computer is acting as host, so this computer is reviewing for now.`,
       reviewer: team.host ? `${team.host.name}'s computer is the host, and this computer reviews.` : 'No host computer is running right now, and this computer reviews.',
     }[team.role];
-    const others = team.people.filter((p) => !p.isMe).map((p) => `${p.name} (${p.role === 'host' ? 'host' : 'reviewing'})`);
+    const mine = team.people.find((p) => p.isMe)?.person;
+    const others = team.people.filter((p) => !p.isMe).map((p) => p.person === mine
+      ? `you on ${p.computer} (${p.role === 'host' ? 'host' : 'reviewing'})`
+      : `${p.name} (${p.role === 'host' ? 'host' : 'reviewing'})`);
     $('#sharing-status').textContent = `${role} ${others.length ? `Also using this data folder: ${listText(others)}.` : 'Nobody else is using this data folder right now.'}`;
 
-    const canEdit = isHost();
+    // The host changes these, and while someone is signed in to AB Apps, only a manager.
+    const canEdit = ui.data.canManage;
+    const notManager = isHost() && !canEdit;
     $('#shared-settings').disabled = !canEdit;
     $('#shared-note').hidden = canEdit;
-    $('#shared-note').textContent = 'Everyone using this data folder shares the matching and retention settings, and only the host can change them.'
-      + (team.host ? ` ${team.host.name}'s computer is the host.` : '');
+    $('#shared-note').textContent = notManager
+      ? 'Everyone using this data folder shares the matching and retention settings, and only a manager can change them. '
+        + `You're signed in to AB Apps as ${abApps.class === 'employee' ? 'an employee' : 'a contractor'}.`
+      : 'Everyone using this data folder shares the matching and retention settings, and only the host can change them.'
+        + (team.host ? ` ${team.host.name}'s computer is the host.` : '');
     $('#open-clear').disabled = !canEdit;
     $('#clear-host-only').hidden = canEdit;
+    $('#clear-host-only').textContent = notManager ? 'Only a manager can clear all data.' : 'Only the host computer can clear all data.';
   }
 
   function markDirty(dirty = true) {

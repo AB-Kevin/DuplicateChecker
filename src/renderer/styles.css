@@ -562,6 +562,8 @@ input[type="text"], input[type="number"] {
 }
 input[type="text"]:focus, input[type="number"]:focus { border-color: var(--border-rule); outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 input.invalid { border-color: var(--text-accent); }
+/* A value that comes from elsewhere (the name from AB Apps), shown but not editable here. */
+input[type="text"]:disabled { background: var(--surface-card-alt); color: var(--text-muted); cursor: default; }
 .num-input { width: 90px; text-align: right; }
 .sentence { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
 

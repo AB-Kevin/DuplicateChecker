@@ -208,3 +208,15 @@ test('each person writes only their own file: drafts, sends, and leaving', () =>
   assert.equal(again.me.role, 'reviewer');
   again.close();
 });
+
+test('the AB Apps person and name go in this computer\'s person file, and follow sign-in changes', () => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dupcheck-abapps-'));
+  const id = '7c9e6679-7425-40de-944b-e07fc1f90ae7';
+  const abAppsId = '0dbc309a-4814-4490-a9ca-0691c9092199';
+  const team = new Team({ id, name: 'Kevin Beachy', abAppsId });
+  team.open(dataDir, { isHost: true, hostSince: ago(0) });
+  assert.deepEqual([readJson(personPath(dataDir, id), null).name, readJson(personPath(dataDir, id), null).abAppsId], ['Kevin Beachy', abAppsId]);
+  team.setName('kevin', null); // signed out of AB Apps: the Settings name again
+  assert.deepEqual([readJson(personPath(dataDir, id), null).name, readJson(personPath(dataDir, id), null).abAppsId], ['kevin', null]);
+  team.close();
+});

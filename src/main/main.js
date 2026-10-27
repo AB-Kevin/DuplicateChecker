@@ -8,13 +8,19 @@ const { spawn } = require('child_process');
 const { app, BrowserWindow, ipcMain, dialog, shell, Notification, Menu, nativeTheme, net } = require('electron');
 const { SHARED_KEYS, THEMES, defaultSettings, validateSettings, loadSettings, saveSettings } = require('./settings');
 const { statePath, defaultInbox, samePath, summarize, copyData, loadState } = require('./datafolder');
-const { writeJson } = require('./jsonfile');
+const { writeJson } = require('ab-common/jsonfile');
 const abApps = require('./abapps');
 const { openBooks } = require('./books');
 const { InboxWatcher } = require('./inbox');
 const { importFile, clearAllData, ImportError, tidyState } = require('./processor');
 const { readHeaders, isSpreadsheet, SPREADSHEET_EXTENSIONS } = require('./spreadsheet');
-const { RELEASES_PAGE, checkForUpdate, downloadInstaller } = require('./updates');
+// Releases are published by .github/workflows/release.yml, each with the
+// latest.yml electron-builder writes beside the installer. AB Apps reads the
+// same file to install and update this app.
+const { RELEASES_PAGE, checkForUpdate, downloadInstaller } = require('ab-common/releases').selfUpdates({
+  repo: 'AB-Kevin/DuplicateChecker',
+  installerName: (version) => `DuplicateChecker-Setup-${version}.exe`, // package.json build.nsis.artifactName
+});
 const {
   Team, readPeople, isActive, activeHosts, firstSentDecisions, saveSentDecisions, settleDecisions, annotateQueue,
 } = require('./team');

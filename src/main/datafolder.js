@@ -13,7 +13,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { readJson, writeJson } = require('./jsonfile');
+const { readJson, writeJson } = require('ab-common/jsonfile');
 
 const APP_DATA = 'App data';
 const DATA_ITEMS = ['Database.xlsx', 'Duplicates.xlsx', APP_DATA, 'Processed', 'Backups'];

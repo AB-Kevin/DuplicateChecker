@@ -1,7 +1,7 @@
 'use strict';
 
 const path = require('path');
-const { readJson, writeJson } = require('./jsonfile');
+const { readJson, writeJson } = require('ab-common/jsonfile');
 const { sharedSettingsPath, defaultInbox, samePath } = require('./datafolder');
 
 // Folder locations and who is using this computer differ from computer to

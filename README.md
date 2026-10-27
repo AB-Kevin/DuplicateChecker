@@ -120,7 +120,7 @@ The release appears on the repository's **Releases** page a few minutes later as
 - The installer isn't code-signed, so Windows SmartScreen shows "Windows protected your PC" the first time it runs. Choose **More info**, then **Run anyway**.
 - To build the installer locally instead, run `npm run dist`. It is written to `dist/`.
 - Each release has the installer and a `latest.yml`, which lists the installer's version, size and SHA-512 digest. electron-builder writes it into `dist/` because package.json's `build.publish` names this repository; the workflow uploads it.
-- **Check for updates** in the app reads `latest.yml` from the repository's latest release (`src/main/updates.js`), so drafts and pre-releases are never offered. It uses the release's download link, not the GitHub API, so many computers on one network can check without hitting GitHub's limit. It only installs `DuplicateChecker-Setup-X.Y.Z.exe` for that release's version, and checks it against the digest in `latest.yml`. AB Apps reads the same file. Keep the tag as `vX.Y.Z` and leave `artifactName` in package.json as it is, or the app won't find the installer. The download and install steps only run in the installed app, not under `npm start`.
+- **Check for updates** in the app reads `latest.yml` from the repository's latest release (`selfUpdates` from [ab-common](https://github.com/AB-Kevin/ab-common)), so drafts and pre-releases are never offered. It uses the release's download link, not the GitHub API, so many computers on one network can check without hitting GitHub's limit. It only installs `DuplicateChecker-Setup-X.Y.Z.exe` for that release's version, and checks it against the digest in `latest.yml`. AB Apps reads the same file. Keep the tag as `vX.Y.Z` and leave `artifactName` in package.json as it is, or the app won't find the installer. The download and install steps only run in the installed app, not under `npm start`.
 
 ### Dependencies
 
@@ -145,8 +145,7 @@ npm install https://cdn.sheetjs.com/xlsx-X.Y.Z/xlsx-X.Y.Z.tgz
 | `src/main/datafolder.js` | Data folder layout: copying, summarizing, moving data from earlier versions |
 | `src/main/team.js` | Reviewing together: people files, choosing the host, saving sent decisions |
 | `src/main/abapps.js` | Who is signed in to AB Apps |
-| `src/main/jsonfile.js` | Reading and writing JSON files safely |
-| `src/main/updates.js` | Checking GitHub for a newer release and downloading its installer |
+| [ab-common](https://github.com/AB-Kevin/ab-common) | Shared with the other apps: reading and writing JSON files safely, who is signed in to AB Apps, and checking GitHub for a newer release |
 | `src/shared/matcher.js` | Value normalization and the match index (also used by the review screen) |
 | `src/preload/preload.js` | The API exposed to the page |
 | `src/renderer/` | The interface |

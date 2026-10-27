@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { readJson, writeJson } = require('../src/main/jsonfile');
+const { readJson, writeJson } = require('ab-common/jsonfile');
 const { defaultSettings, loadSettings, saveSettings } = require('../src/main/settings');
 const { sharedSettingsPath, statePath, summarize, copyData, loadState } = require('../src/main/datafolder');
 

@@ -18,7 +18,7 @@ const os = require('os');
 const path = require('path');
 const { EventEmitter } = require('events');
 const chokidar = require('chokidar');
-const { readJson, writeJson } = require('./jsonfile');
+const { readJson, writeJson } = require('ab-common/jsonfile');
 const { APP_DATA, statePath, sharedSettingsPath } = require('./datafolder');
 const { applyDecisions } = require('./processor');
 
